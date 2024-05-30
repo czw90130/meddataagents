@@ -1,0 +1,26 @@
+[
+    {
+        "model_type": "openai_chat",
+        "config_name": "gpt-4",
+        "model_name": "gpt-4o",
+        "api_key": "",
+        "organization": ""
+    },
+    {
+        "model_type": "dashscope_chat",
+        "config_name": "qwen",
+        "model_name": "qwen-max",
+        "api_key": "",
+        "generate_args": {
+            "temperature": 0.8
+        }
+    },
+    {
+        "model_type": "bedrock_chat",
+        "config_name": "claude3",
+        "model_name": "claude3-sonnet",
+        "ak": "",
+        "sk": "",
+        "region": ""
+    }
+]
