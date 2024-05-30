@@ -20,8 +20,11 @@ def main() -> None:
     
     x = user_agent().content
 
-    result = ag.annotate_tags_group(x, "./configs/basic_tags.json")
+    result = ag.define_project(x)
     print(result.content)
+    
+    # result = ag.annotate_tags(x, "./configs/basic_tags.json")
+    # print(result.content)
 
 
 if __name__ == "__main__":

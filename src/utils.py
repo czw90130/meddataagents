@@ -5,6 +5,7 @@ import importlib
 from functools import partial
 
 from agentscope.message import Msg
+from agentscope.agents.user_agent import UserAgent
 
 from prompt import Prompts
 from bedrock_model_wrapper import BedrockCheckModelWrapper
@@ -48,6 +49,8 @@ def check_nested_tags(text):
     return dict(tag_dict)
 
 class AgentGroups:
+    
+    HostMsg = partial(Msg, name="Moderator", role="assistant")
     def __init__(self, agent_configs):
         # 加载 JSON文件,使用utf-8编码
         with open(agent_configs, 'r', encoding='utf-8') as f:
@@ -67,8 +70,91 @@ class AgentGroups:
         agent_class = self.agent_classes[agent_config['class']]
         agent = agent_class(**agent_config['args'])
         return agent
-    def annotate_tags_group(self, text, tag_config):
+    
+    def define_project(self, text, is_customer=True, review_times=3):
+        # 创建代理
+        pm = self.get_agent('ProjectManager')
+        pm.set_parser(Prompts.project_definition_parser)
         
+        data_scientist = self.get_agent('DataScientist')
+        
+        # Init use agents
+        user_agent = UserAgent()
+        
+        prev_info = {
+            "problem_statement": "",
+            "analysis_objectives": "",
+            "scope": "",
+            "key_indicators": "",
+            "analysis_methods": "",
+            "continue_ask": True,
+            "message": ""
+        }
+        prev_info_str = json.dumps(prev_info, separators=(',', ':'), indent=None)
+        
+        # 创建消息
+        x_json = {"collaborator":"", "message": ""}
+        if isinstance(text, Msg):
+            x_json["collaborator"] = text.name
+            x_json["message"] = text.content
+        else:
+            x_json["message"] = text
+        if not isinstance(x_json["message"], str):
+            x_json["message"] = f"{x_json["message"]}"
+            
+        if is_customer:
+            x_json["collaborator"] = "Customer"
+            
+        customer_conversation = f"Customer: {x_json['message']}\n"
+        
+        x = json.dumps(x_json, separators=(',', ':'), indent=None)
+            
+        review = None
+        while isinstance(x, str) or x.content.get("decision", False):
+            # 规划
+            hit = self.HostMsg(content=Prompts.project_definition_task.format_map(
+                {
+                    "prev": prev_info_str,
+                    "msg": x if isinstance(x, str) else "",
+                })
+            )
+            
+            result = pm(hit)
+            
+            if result.content.get("continue_ask", True):
+                customer_conversation += f"ProjectManager: {result.content.get('message', "")}\n"
+                
+                x_json = {"collaborator":"Customer"}
+                x_json["message"] = user_agent().content
+                x = json.dumps(x_json, separators=(',', ':'), indent=None)
+                
+                customer_conversation = f"Customer: {x_json['message']}\n"
+                
+                continue
+            
+            # 检查
+            rst_dict = result.content
+            if "continue_ask" in rst_dict:
+                del rst_dict["continue_ask"]
+            if "message" in rst_dict:
+                del rst_dict["message"]
+                
+            hit = self.HostMsg(content=Prompts.project_definition_review_task.format_map(
+                {
+                    "prev": json.dumps(rst_dict, separators=(',', ':'), indent=None),
+                    "msg": customer_conversation,
+                })
+            )
+            
+            review = data_scientist(hit)
+            
+            print(review)
+            
+            break
+        
+        return result
+    
+    def annotate_tags(self, text, tag_config, review_times=3):
         # 加载标签配置
         if isinstance(tag_config, str):
             if os.path.isfile(tag_config):
@@ -98,7 +184,7 @@ class AgentGroups:
         judge = self.get_agent('Judge')
         judge.set_parser(Prompts.annotate_judge_parser)
         
-        HostMsg = partial(Msg, name="Moderator", role="assistant")
+        
         
         # 创建消息
         if isinstance(text, Msg):
@@ -109,10 +195,9 @@ class AgentGroups:
             x = f"{x}"
     
         review = None
-        review_times = 3
         while isinstance(x, str) or x.content.get("decision", False):
             # 标注
-            hit = HostMsg(content=Prompts.annotate_task.format_map(
+            hit = self.HostMsg(content=Prompts.annotate_task.format_map(
                 {
                     "tags": tags_json_str,
                     "require": require_str if review is None else review,
@@ -125,7 +210,7 @@ class AgentGroups:
             # 检查
             check = check_nested_tags(result.content)
             check_str = json.dumps(check, separators=(',', ':'), indent=None)
-            hint = HostMsg(content=Prompts.annotate_review_task.format_map(
+            hint = self.HostMsg(content=Prompts.annotate_review_task.format_map(
                 {
                     "tags": tags_json_str,
                     "require": require_str if review is None else review,
@@ -147,7 +232,7 @@ class AgentGroups:
             review_content = f"# Error Identification:\n{errors}\n\n# Optimization Suggestions:\n{suggestions}\n"
 
             # 判断
-            hint = HostMsg(content=Prompts.annotate_judge_task.format_map(
+            hint = self.HostMsg(content=Prompts.annotate_judge_task.format_map(
                 {
                     "tags": tags_json_str,
                     "require": review_content,
