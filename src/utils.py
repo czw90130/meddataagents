@@ -44,7 +44,7 @@ def check_nested_tags(text):
             tag_dict[tag].append(tag_pattern.sub('', content))
             text = text.replace(match.group(0), '', 1)
 
-    tag_dict['tags_properly_nested'] = tags_properly_nested
+    tag_dict['tags_properly_nested'] = tags_properly_nested # type: ignore
 
     return dict(tag_dict)
 
@@ -78,6 +78,9 @@ class AgentGroups:
         
         data_scientist = self.get_agent('DataScientist')
         
+        proj_master = self.get_agent('ProjectMaster')
+        proj_master.set_parser(Prompts.project_definition_judge_parser)
+        
         # Init use agents
         user_agent = UserAgent()
         
@@ -100,7 +103,8 @@ class AgentGroups:
         else:
             x_json["message"] = text
         if not isinstance(x_json["message"], str):
-            x_json["message"] = f"{x_json["message"]}"
+            message_value = x_json["message"]
+            x_json["message"] = f"{message_value}"
             
         if is_customer:
             x_json["collaborator"] = "Customer"
@@ -112,45 +116,60 @@ class AgentGroups:
         review = None
         while isinstance(x, str) or x.content.get("decision", False):
             # 规划
+            msg = x
+            if review is not None:
+                msg = review.content
             hit = self.HostMsg(content=Prompts.project_definition_task.format_map(
                 {
                     "prev": prev_info_str,
-                    "msg": x if isinstance(x, str) else "",
+                    "msg": msg,
                 })
             )
             
             result = pm(hit)
             
             if result.content.get("continue_ask", True):
-                customer_conversation += f"ProjectManager: {result.content.get('message', "")}\n"
+                message_value = result.content.get('message', "")
+                customer_conversation += f"ProjectManager: {message_value}\n"
                 
                 x_json = {"collaborator":"Customer"}
                 x_json["message"] = user_agent().content
                 x = json.dumps(x_json, separators=(',', ':'), indent=None)
-                
-                customer_conversation = f"Customer: {x_json['message']}\n"
+                message_value = x_json['message']
+                customer_conversation = f"Customer: {message_value}\n"
                 
                 continue
             
             # 检查
-            rst_dict = result.content
-            if "continue_ask" in rst_dict:
-                del rst_dict["continue_ask"]
-            if "message" in rst_dict:
-                del rst_dict["message"]
+            if "continue_ask" in result.content:
+                del result.content["continue_ask"]
+            if "message" in result.content:
+                del result.content["message"]
+                
+            review_times -= 1
+            if review_times < 0:
+                break
                 
             hit = self.HostMsg(content=Prompts.project_definition_review_task.format_map(
                 {
-                    "prev": json.dumps(rst_dict, separators=(',', ':'), indent=None),
+                    "prev": json.dumps(result.content, separators=(',', ':'), indent=None),
                     "msg": customer_conversation,
                 })
             )
             
             review = data_scientist(hit)
             
-            print(review)
+            # 判断
+            hit = self.HostMsg(content=Prompts.project_definition_review_task.format_map(
+                {
+                    "prev": json.dumps(result.content, separators=(',', ':'), indent=None),
+                    "msg": review.content,
+                })
+            )
             
-            break
+            x = proj_master(hit)
+            
+            print(x)
         
         return result
     
@@ -163,7 +182,7 @@ class AgentGroups:
                     tags_json_str = json.dumps(json_data['tags'], separators=(',', ':'), indent=None)
                     require_str = json_data['require']
             else:
-                json_data = json.load(tag_config)
+                json_data = json.load(tag_config) # type: ignore
                 tags_json_str = json.dumps(json_data['tags'], separators=(',', ':'), indent=None)
                 require_str = json_data['require']
         elif isinstance(tag_config, dict):
@@ -201,7 +220,7 @@ class AgentGroups:
                 {
                     "tags": tags_json_str,
                     "require": require_str if review is None else review,
-                    "info": x if isinstance(x, str) else result.content,
+                    "info": x if isinstance(x, str) else result.content, # type: ignore
                 })
             )
             

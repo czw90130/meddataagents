@@ -143,3 +143,6 @@ tmp*.json
 
 # ak/sk files
 model_configs.json
+
+# dataset
+CCKS_dataset/
