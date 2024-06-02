@@ -128,8 +128,8 @@ class AgentGroups:
             
             result = pm(hit)
             
-            if result.content.get("continue_ask", True):
-                message_value = result.content.get('message', "")
+            if result.metadata.get("continue_ask", True):
+                message_value = result.metadata.get('message', "")
                 customer_conversation += f"ProjectManager: {message_value}\n"
                 
                 x_json = {"collaborator":"Customer"}
@@ -141,10 +141,10 @@ class AgentGroups:
                 continue
             
             # 检查
-            if "continue_ask" in result.content:
-                del result.content["continue_ask"]
-            if "message" in result.content:
-                del result.content["message"]
+            if "continue_ask" in result.metadata:
+                del result.metadata["continue_ask"]
+            if "message" in result.metadata:
+                del result.metadata["message"]
                 
             review_times -= 1
             if review_times < 0:
@@ -172,6 +172,37 @@ class AgentGroups:
             print(x)
         
         return result
+    
+    def create_table_tags(self, project_definition_input, review_times=3):
+        # 创建代理
+        table = self.get_agent('TableDesigner')
+        table.set_parser(Prompts.table_head_parser)
+        
+        prev_headers = []
+        prev_headers_str = json.dumps(prev_headers, separators=(',', ':'), indent=None)
+        
+        # 创建消息
+        if isinstance(project_definition_input, Msg):
+            project_definition = project_definition_input.content
+        else:
+            project_definition = project_definition_input
+            
+        if not isinstance(project_definition, str):
+            project_definition = json.dumps(project_definition, separators=(',', ':'), indent=None)
+            
+        for i in range(review_times):
+            # 表格设计
+            table_hit = self.HostMsg(content=Prompts.table_head_task.format_map(
+                {
+                    "project_definition": project_definition,
+                    "prev_headers": prev_headers_str,
+                })
+            )
+            
+            table_header = table(table_hit)
+            prev_headers.extend(table_header.content.keys())
+        
+        return table_header
     
     def annotate_tags(self, text, tag_config, review_times=3):
         # 加载标签配置

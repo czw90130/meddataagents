@@ -1,0 +1,35 @@
+{
+    "hospital": {
+      "type": "string",
+      "description": "The name of the hospital."
+    },
+    "age": {
+      "type": "number",
+      "description": "The age of the individual in years."
+    },
+    "gender": {
+      "type": {
+        "enum": ["male", "female", "other"]
+      },
+      "description": "Gender of the individual."
+    },
+    "date_of_birth": {
+      "type": "date",
+      "description": "The date of birth of the individual."
+    },
+    "asa_status_pre_op2": {
+      "type": {
+        "enum": [1, 2, 3, 4, 5]
+      },
+      "description": "Pre-operative ASA score: 1 - Normal healthy patient, 2 - Patient with mild systemic disease, 3 - Patient with severe systemic disease, 4 - Patient with severe systemic disease that is a constant threat to life, 5 - Moribund patient who is not expected to survive without the operation."
+    },
+    "angina_within_30_days_prior_to_s": {
+      "type": "boolean",
+      "description": "Occurrence of angina within 30 days prior to surgery."
+    },
+    "pulse_rate_per_min_pre_op": {
+      "type": "number",
+      "description": "Pulse rate per minute before surgery."
+    }
+  }
+  

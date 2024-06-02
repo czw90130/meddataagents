@@ -13,7 +13,7 @@ class Prompts:
     )
     
     project_definition_parser = MarkdownJsonDictParser(
-        {
+        content_hint={
             "problem_statement": "String. Description of the specific problem or challenge to be addressed.",
             "analysis_objectives": "String. Specific analysis objectives and expected outcomes.",
             "scope": "String. Time range, geographic range, and population range for the analysis.",
@@ -21,7 +21,9 @@ class Prompts:
             "analysis_methods": "String. Preliminary analysis methods and expected outcomes.",
             "continue_ask": "Boolean value (True/False). Whether need Customer give more infomation.",
             "message": "String. questions for Customer if continue_ask==True else other infomation."
-        }
+        },
+        keys_to_content="message",
+        keys_to_metadata=True
     )
     
     project_definition_review_task = (
@@ -43,6 +45,34 @@ class Prompts:
             "decision" : "Boolean value (True/False). Whether adopt the data scientist's suggestions and ask the project manager to optimize the project definitions accordingly.",
             "reason": "String that provide a brief explanation for your decision."
         }
+    )
+    
+    table_head_task = (
+        "# Example\nThe following is an example of table headers generated for a project aiming to analyze patient data to assess the risk factors associated with post-operative complications." 
+        "This example is for reference only:\n"
+        "```{{\"patient_id\":{{\"type\":\"string\",\"description\":\"Unique identifier.\"}},"
+        "\"hospital\": {{\"type\":\"string\",\"description\":\"Hospital name.\"}},"
+        "\"age\":{{\"type\":\"number\",\"description\":\"Age in years.\"}},"
+        "\"gender\":{{\"type\":{{\"enum\":[\"male\",\"female\",\"other\"]}},\"description\":\"Gender\"}},"
+        "\"date_of_birth\":{{\"type\":\"date\",\"description\":\"Patient's date of birth.\"}},"
+        "\"asa_status_pre_op\":{{\"type\": {{\"enum\": [1,2,3,4,5]}},\"description\":\"Pre-operative ASA score: 1-Healthy, 2-Mild disease, 3-Severe disease, 4-Life-threatening, 5-Moribund.\"}},"
+        "\"angina_within_30_days_pre_op\": {{\"type\":\"boolean\",\"description\":\"Angina within 30 days prior to surgery.\"}},"
+        "\"pulse_rate_pre_op\":{{\"type\": \"number\",\"description\": \"Pre-op pulse rate per minute.\"}}}}```\n\n"
+        "# Project Definition\n"
+        "```\n{project_definition}\n```\n\n"
+        "# Existing Headers\nThe following headers already exist in the current project and should not be duplicated:\n"
+        "{prev_headers}\n\n"
+    )
+    
+    table_head_parser = MarkdownJsonDictParser(
+        content_hint=(
+        "The JSON object with the table headers defined as follows:\n"
+        "```\n"
+        "{\"header_name\":{\"type\":\"string|number|boolean|date|enum\",\"description\":\"Brief description of the header.\"}}\n"
+        "```\n"
+        "For enum types, include the possible values within the \"type\" field. Ensure that the options are as comprehensive as possible to fully describe the field."
+        "To enhance data structuring, minimize the use of `string` type and prefer using `boolean` or `enum` types where applicable."
+    )
     )
     
     annotate_task = (
