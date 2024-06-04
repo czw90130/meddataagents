@@ -66,13 +66,54 @@ class Prompts:
     
     table_head_parser = MarkdownJsonDictParser(
         content_hint=(
-        "The JSON object with the table headers defined as follows:\n"
-        "```\n"
-        "{\"header_name\":{\"type\":\"string|number|boolean|date|enum\",\"description\":\"Brief description of the header.\"}}\n"
-        "```\n"
-        "For enum types, include the possible values within the \"type\" field. Ensure that the options are as comprehensive as possible to fully describe the field."
-        "To enhance data structuring, minimize the use of `string` type and prefer using `boolean` or `enum` types where applicable."
+            "The JSON object with the table headers defined as follows:\n"
+            "```\n"
+            "{\"header_name\":{\"type\":\"string|number|boolean|date|enum\",\"description\":\"Brief description of the header.\"}}\n"
+            "```\n"
+            "For enum types, include the possible values within the \"type\" field. Ensure that the options are as comprehensive as possible to fully describe the field."
+            "To enhance data structuring, minimize the use of `string` type and prefer using `boolean` or `enum` types where applicable."
+        )
     )
+    
+    label_task = (
+        "# Project Definition\n"
+        "```\n{project_definition}\n```\n\n"
+        "# Current Table Headers\n"
+        "```\n{headers}\n```\n\n"
+        "# Current Medical Entity Annotation\n(The following Annotations already exist in the current project and should not be duplicated)\n"
+        "```\n{tags}\n```\n"
+
+    )
+    
+    label_parser = MarkdownJsonDictParser(
+        content_hint=(
+            "JSON object for Medical Entity Annotation defined as follows:\n"
+            "```\n"
+            "{\"tag0\":\"Name0|Description0|Example0\",\"tag1\":\"Name1|Description1|Example1\",...}"
+            "```\n"
+            "The format of the tag name should follow these rules:\n"
+            "- Use a three-letter abbreviation for the main category (e.g., 'xxx').\n"
+            "- For subcategories, use a combination of three-letter abbreviations separated by an underscore (e.g., 'xxx_xxx'). The first part of the tag name represents the parent category, and the second part represents the subcategory.\n"
+        )
+    )
+    
+    data_arch_task = (
+        "# Project Definition\n"
+        "```\n{project_definition}\n```\n\n"
+        "# Table Headers\n"
+        "```\n{headers}\n```\n\n"
+        "# Medical Entity Annotation labels\n"
+        "```\n{tags}\n```\n"
+    )
+    
+    data_arch_parser = MarkdownJsonDictParser(
+        content_hint={
+            "del_table_names": "A list of table names to be deleted.",
+            "del_label_names": "A list of Medical Entity Annotation label names to be deleted.",
+            "reason": "String that provide a brief explanation for your decision."
+        },
+        keys_to_content="reason",
+        keys_to_metadata=True
     )
     
     annotate_task = (

@@ -173,13 +173,37 @@ class AgentGroups:
         
         return result
     
-    def create_table_tags(self, project_definition_input, review_times=3):
+    def create_table_tags(self, project_definition_input, tag_config, review_times=3):
+        # 加载标签配置
+        if isinstance(tag_config, str):
+            if os.path.isfile(tag_config):
+                with open(tag_config, "r", encoding='utf-8') as f:
+                    json_data = json.load(f)
+                    annotate_tags = dict(json_data['tags'])
+                    # require_str = json_data['require']
+            else:
+                json_data = json.load(tag_config) # type: ignore
+                annotate_tags = dict(json_data['tags'])
+                # require_str = json_data['require']
+        elif isinstance(tag_config, dict):
+            if isinstance(tag_config['tags'], str):
+                json_data = json.loads(tag_config['tags'])
+                annotate_tags = dict(json_data)
+            else:
+                annotate_tags = tag_config['tags']
+            # require_str = tag_config['require']
+        else:
+            raise ValueError("Invalid tag_config format")
+        
         # 创建代理
         table = self.get_agent('TableDesigner')
         table.set_parser(Prompts.table_head_parser)
         
-        prev_headers = []
-        prev_headers_str = json.dumps(prev_headers, separators=(',', ':'), indent=None)
+        label = self.get_agent('LabelDesigner')
+        label.set_parser(Prompts.label_parser)
+        
+        da = self.get_agent('DataArchitect')
+        da.set_parser(Prompts.data_arch_parser)
         
         # 创建消息
         if isinstance(project_definition_input, Msg):
@@ -190,7 +214,10 @@ class AgentGroups:
         if not isinstance(project_definition, str):
             project_definition = json.dumps(project_definition, separators=(',', ':'), indent=None)
             
+        prev_headers = []
+        table_headers = {}
         for i in range(review_times):
+            prev_headers_str = json.dumps(prev_headers, separators=(',', ':'), indent=None)
             # 表格设计
             table_hit = self.HostMsg(content=Prompts.table_head_task.format_map(
                 {
@@ -199,10 +226,47 @@ class AgentGroups:
                 })
             )
             
-            table_header = table(table_hit)
-            prev_headers.extend(table_header.content.keys())
-        
-        return table_header
+            new_table_headers = table(table_hit)
+            prev_headers.extend(new_table_headers.content.keys())
+            for k, v in new_table_headers.content.items():
+                if k not in table_headers:
+                    table_headers[k] = v
+            table_header_str = json.dumps(table_headers, separators=(',', ':'), indent=None)
+            
+            # 标注标签设计
+            tags_json_str = json.dumps(annotate_tags, separators=(',', ':'), indent=None)
+            label_hint = self.HostMsg(content=Prompts.label_task.format_map(
+                {
+                    "project_definition": project_definition,
+                    "headers": table_header_str,
+                    "tags": tags_json_str,
+                })
+            )
+            new_tags = label(label_hint)
+            for k, v in new_tags.content.items():
+                if k not in annotate_tags:
+                    annotate_tags[k] = v
+                    
+            # 数据架构审核
+            da_hint = self.HostMsg(content=Prompts.data_arch_task.format_map(
+                {
+                    "project_definition": project_definition,
+                    "headers": table_header_str,
+                    "tags": tags_json_str,
+                })
+            )
+            del_list = da(da_hint)
+            
+            del_table_names = del_list.metadata.get('del_table_names', [])
+            for del_name in del_table_names:
+                if del_name in table_headers:
+                    del table_headers[del_name]
+            del_label_names = del_list.metadata.get('del_label_names', [])
+            for del_name in del_label_names:
+                if del_name in annotate_tags:
+                    del annotate_tags[del_name]
+
+        return table_headers, annotate_tags
     
     def annotate_tags(self, text, tag_config, review_times=3):
         # 加载标签配置
