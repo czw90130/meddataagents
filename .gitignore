@@ -145,5 +145,5 @@ tmp*.json
 model_configs.json
 
 # dataset
-CCKS_dataset/
-人次库导出0603/
+dataset/
+.vscode/

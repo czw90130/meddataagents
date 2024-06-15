@@ -5,10 +5,7 @@ from agentscope.utils.tools import _convert_to_str
 import json
 from loguru import logger
 
-try:
-    import boto3
-except ImportError:
-    boto3 = None
+import boto3
 
 class BedrockCheckModelWrapper(ModelWrapperBase):
     model_type: str = "bedrock_chat"
@@ -17,10 +14,10 @@ class BedrockCheckModelWrapper(ModelWrapperBase):
         self,
         config_name,
         model_name = None,
-        ak: str = None,
-        sk: str = None,
-        region: str = None,
-        client_args: dict = None,
+        ak: str = "",
+        sk: str = "",
+        region: str = "",
+        client_args: dict = {},
         generate_args = None,
         **kwargs: Any
     ):
@@ -58,9 +55,6 @@ class BedrockCheckModelWrapper(ModelWrapperBase):
         # 初始化模型实例
         super().__init__(config_name=config_name)
         # ...
-        
-        if boto3 is None:
-            raise ImportError("Cannot find boto3 package in current python environment.")
         
         self.model_name = model_name
         
