@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import openpyxl
 import sqlite3
 import sys
 import hashlib
@@ -161,39 +162,69 @@ class ExcelChunkProcessor:
 
         :param file_path: 文件路径
         """
+        # 将文件路径转换为合法的表名
         table_name = file_path.replace(os.sep, "_").replace(":", "").replace(".", "_")
+
+        # 处理Excel文件
         if file_path.endswith('.xlsx') and '~$' not in file_path:
+            # 打开Excel文件
             excel_file = pd.ExcelFile(file_path)
+            
+            # 遍历Excel文件中的所有工作表
             for sheet_name in excel_file.sheet_names:
+                # 读取当前工作表的数据
                 df = excel_file.parse(sheet_name=sheet_name)
+                
+                # 计算数据的哈希值
                 content_hash = self._calculate_hash(df)
+                
+                # 检查文件是否已经处理过且内容未变更
                 if self._is_file_processed(file_path, sheet_name, content_hash):
                     print(f"Skipping unchanged file: {file_path} | {sheet_name}")
                     continue
 
+                # 生成完整的表名（文件名_工作表名）
                 full_table_name = f"{table_name}_{sheet_name}"
+                
+                # 将数据写入SQL数据库
                 df.to_sql(full_table_name, self.conn, if_exists='replace', index=False)
+                
+                # 记录表信息
                 self.table_info.append({
                     'file_path': file_path,
                     'sheet_name': sheet_name,
                     'table_name': full_table_name,
                     'columns': df.columns.tolist()
                 })
+                
+                # 标记文件为已处理
                 self._mark_file_as_processed(file_path, sheet_name, content_hash)
+
+        # 处理CSV文件
         elif file_path.endswith('.csv'):
+            # 读取CSV文件
             df = pd.read_csv(file_path)
+            
+            # 计算数据的哈希值
             content_hash = self._calculate_hash(df)
+            
+            # 检查文件是否已经处理过且内容未变更
             if self._is_file_processed(file_path, None, content_hash):
                 print(f"Skipping unchanged file: {file_path}")
                 return
 
+            # 将数据写入SQL数据库
             df.to_sql(table_name, self.conn, if_exists='replace', index=False)
+            
+            # 记录表信息
             self.table_info.append({
                 'file_path': file_path,
                 'sheet_name': None,
                 'table_name': table_name,
                 'columns': df.columns.tolist()
             })
+            
+            # 标记文件为已处理
             self._mark_file_as_processed(file_path, None, content_hash)
 
     def process_directory(self, directory):
@@ -276,6 +307,7 @@ class ExcelChunkProcessor:
         关闭数据库连接。
         """
         self.conn.close()
+        
 
 # 示例用法
 if __name__ == "__main__":

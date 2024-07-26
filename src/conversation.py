@@ -13,7 +13,7 @@ def main() -> None:
     agentscope.init(
         model_configs="./configs/model_configs.json"
     )
-    ag = AgentGroups("./configs/agent_configs.json")
+    ag = AgentGroups("./agents")
     
     # Init use agents
     # user_agent = UserAgent()

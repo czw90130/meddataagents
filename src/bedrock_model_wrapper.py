@@ -46,6 +46,7 @@ class BedrockCheckModelWrapper(ModelWrapperBase):
             "claude3-opus":"anthropic.claude-3-opus-20240229-v1:0",
             "claude3-sonnet":"anthropic.claude-3-sonnet-20240229-v1:0",
             "claude3-haiku":"anthropic.claude-3-haiku-20240229-v1:0",
+            "claude3.5-sonnet":"anthropic.claude-3-5-sonnet-20240620-v1:0",
         }
         
         if model_name is None or model_name not in model_list:
@@ -106,7 +107,7 @@ class BedrockCheckModelWrapper(ModelWrapperBase):
         
         # step2: checking messages
         if not isinstance(messages, list):
-             raise ValueError(
+            raise ValueError(
                 "bedrock `messages` field expected type `list`, "
                 f"got `{type(messages)}` instead.",
             )
