@@ -191,6 +191,14 @@ def read_excel(excel_file):
     excel_files_dir = os.path.join(os.path.dirname(excel_file), f"{excel_filename}_excel_files")
     os.makedirs(excel_files_dir, exist_ok=True)
 
+    def process_cell_value(value):
+        if isinstance(value, str):
+            # 替换换行符为 \n，并替换竖线为转义的竖线
+            return value.replace('\n', '\\n').replace('|', '\\|')
+        elif value is not None:
+            return str(value).replace('|', '\\|')
+        return ""
+
     for sheet in workbook.sheetnames:
         worksheet = workbook[sheet]
         markdown += f"# {sheet}\n\n"
@@ -220,12 +228,12 @@ def read_excel(excel_file):
                 
                 if is_merged:
                     if cell == worksheet.cell(cell.row, cell.column):
-                        value = str(cell.value).replace("|", "\\|") if cell.value is not None else ""
+                        value = process_cell_value(cell.value)
                         row_md += f" {value} |"
                     else:
                         row_md += " |"
                 else:
-                    value = str(cell.value).replace("|", "\\|") if cell.value is not None else ""
+                    value = process_cell_value(cell.value)
                     row_md += f" {value} |"
 
                 # 检查该单元格是否有图片

@@ -34,7 +34,7 @@ class ExcelChunkProcessor:
         self.conn.execute(create_table_query)
         self.conn.commit()
 
-    def _calculate_hash(self, df):
+    def calculate_hash(self, df):
         """
         计算 DataFrame 的 MD5 哈希值。
 
@@ -46,7 +46,7 @@ class ExcelChunkProcessor:
             hash_md5.update(str(row).encode('utf-8'))
         return hash_md5.hexdigest()
 
-    def _is_file_processed(self, file_path, sheet_name, new_hash):
+    def is_file_processed(self, file_path, sheet_name, new_hash):
         """
         检查文件和工作表是否已经处理过。
 
@@ -156,7 +156,7 @@ class ExcelChunkProcessor:
 
         return chunks, -1
 
-    def process_file(self, file_path):
+    def process_file(self, file_path, summary=None):
         """
         处理单个文件。
 
@@ -164,6 +164,8 @@ class ExcelChunkProcessor:
         """
         # 将文件路径转换为合法的表名
         table_name = file_path.replace(os.sep, "_").replace(":", "").replace(".", "_")
+        
+        processed_info = []
 
         # 处理Excel文件
         if file_path.endswith('.xlsx') and '~$' not in file_path:
@@ -176,10 +178,10 @@ class ExcelChunkProcessor:
                 df = excel_file.parse(sheet_name=sheet_name)
                 
                 # 计算数据的哈希值
-                content_hash = self._calculate_hash(df)
+                content_hash = self.calculate_hash(df)
                 
                 # 检查文件是否已经处理过且内容未变更
-                if self._is_file_processed(file_path, sheet_name, content_hash):
+                if self.is_file_processed(file_path, sheet_name, content_hash):
                     print(f"Skipping unchanged file: {file_path} | {sheet_name}")
                     continue
 
@@ -190,7 +192,7 @@ class ExcelChunkProcessor:
                 df.to_sql(full_table_name, self.conn, if_exists='replace', index=False)
                 
                 # 记录表信息
-                self.table_info.append({
+                processed_info.append({
                     'file_path': file_path,
                     'sheet_name': sheet_name,
                     'table_name': full_table_name,
@@ -206,7 +208,7 @@ class ExcelChunkProcessor:
             df = pd.read_csv(file_path)
             
             # 计算数据的哈希值
-            content_hash = self._calculate_hash(df)
+            content_hash = self.calculate_hash(df)
             
             # 检查文件是否已经处理过且内容未变更
             if self._is_file_processed(file_path, None, content_hash):
@@ -217,7 +219,7 @@ class ExcelChunkProcessor:
             df.to_sql(table_name, self.conn, if_exists='replace', index=False)
             
             # 记录表信息
-            self.table_info.append({
+            processed_info.append({
                 'file_path': file_path,
                 'sheet_name': None,
                 'table_name': table_name,
@@ -226,6 +228,10 @@ class ExcelChunkProcessor:
             
             # 标记文件为已处理
             self._mark_file_as_processed(file_path, None, content_hash)
+            
+        self.table_info.extend(processed_info)
+        
+        return processed_info
 
     def process_directory(self, directory):
         """

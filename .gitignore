@@ -151,3 +151,4 @@ model_configs.json
 # dataset
 dataset/
 .vscode/
+src/data.db
