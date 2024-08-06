@@ -16,17 +16,11 @@ class TableScreener:
             name="TableScreener",
             sys_prompt=(
                 "You are a Table Screener specialized in analyzing table structures and evaluating their suitability for SQL import. "
-                "Your task is to review table content, determine the table type, assess its suitability for SQL import, and identify table headers.\n\n"
+                "Your task is to review table content, assess its suitability for SQL import, and identify table headers.\n\n"
                 "# Responsibilities\n\n"
                 "1. Analyze Table Content: Review the table content provided.\n"
-                "2. Determine Table Type: Classify the table into one of the specified categories.\n"
-                "3. Assess SQL Import Suitability: Evaluate whether the table can be imported into SQL and provide appropriate recommendations.\n"
-                "4. Identify Table Headers: Provide a JSON schema describing the table headers.\n\n"
-                "# Table Types\n"
-                "- UNFORMATTED_TABLE: Tabular data without clear formatting\n"
-                "- ROW_HEADER_TABLE: Table with headers for each row\n"
-                "- COL_HEADER_TABLE: Table with headers for each column\n"
-                "- RAW_DATA_LIST: List of data without headers\n\n"
+                "2. Assess SQL Import Suitability: Evaluate whether the table can be imported into SQL and provide appropriate recommendations.\n"
+                "3. Identify Table Headers: Provide a JSON schema describing the table headers.\n\n"
                 "# SQL Import Suitability\n"
                 "- NO: Cannot be imported into SQL\n"
                 "- TRANS: Can be imported after specific transformations (describe in detail)\n"
@@ -40,10 +34,10 @@ class TableScreener:
                 "   - If any subtable cannot be imported, use 'NO'.\n"
                 "   Provide detailed reasoning for each subtable in the 'reasoning' field using a dictionary format.\n\n"
                 "3. For table structures, carefully examine if line breaks within cells are represented as '\\n'. "
-                "If so, this does not necessarily indicate a broken table structure and may still be suitable for direct SQL import.\n\n"
-                "4. When determining table types, consider that the first column might not always be a row header. "
-                "Analyze the content to determine if it's COL_HEADER_TABLE or ROW_HEADER_TABLE.\n\n"
-                "5. Provide a JSON schema for the table headers, including data types and descriptions for each column.\n\n"
+                "This does not necessarily indicate a broken table structure and may still be suitable for direct SQL import.\n\n"
+                "4. Provide a JSON schema for the table headers, including data types and descriptions for each column.\n\n"
+                "5. For columns that represent categories or types  , use the 'enum' type in the JSON schema "
+                "and list the possible values observed in the data.\n\n"
                 "# Header JSON Format\n"
                 "The JSON object with the table headers should be defined as follows:\n"
                 "```\n"
@@ -51,6 +45,13 @@ class TableScreener:
                 "```\n"
                 "For enum types, include the possible values within the \"type\" field. Ensure that the options are as comprehensive as possible to fully describe the field. "
                 "To enhance data structuring, minimize the use of `string` type and prefer using `boolean` or `enum` types where applicable.\n\n"
+                "# Long-text Type\n"
+                "When identifying header types, use 'long-text' for fields that typically contain:\n"
+                "- More than two sentences of text\n"
+                "- Text with line breaks or paragraphs\n"
+                "- Detailed descriptions, comments, or narratives\n"
+                "- Content that exceeds 64 characters\n"
+                "This distinction is important for proper SQL schema design and efficient data storage.\n\n"
                 "This example is for reference only:\n"
                 "```\n"
                 "{\n"
@@ -61,7 +62,8 @@ class TableScreener:
                 "  \"date_of_birth\": {\"type\": \"date\", \"description\": \"Patient's date of birth.\"},\n"
                 "  \"asa_status_pre_op\": {\"type\": {\"enum\": [1, 2, 3, 4, 5]}, \"description\": \"Pre-operative ASA score: 1-Healthy, 2-Mild disease, 3-Severe disease, 4-Life-threatening, 5-Moribund.\"},\n"
                 "  \"angina_within_30_days_pre_op\": {\"type\": \"boolean\", \"description\": \"Angina within 30 days prior to surgery.\"},\n"
-                "  \"pulse_rate_pre_op\": {\"type\": \"number\", \"description\": \"Pre-op pulse rate per minute.\"}\n"
+                "  \"pulse_rate_pre_op\": {\"type\": \"number\", \"description\": \"Pre-op pulse rate per minute.\"},\n"
+                "  \"medical_history\": {\"type\": \"long-text\", \"description\": \"Detailed medical history of the patient, including past surgeries, chronic conditions, and allergies.\"}\n"
                 "}\n"
                 "```\n"
             ),
@@ -71,10 +73,9 @@ class TableScreener:
 
         self.parser = MarkdownJsonDictParser(
             content_hint={
-                "table_type": "The table type based on the given categories.",
                 "sql_import": "Assessment of suitability for SQL import (NO, TRANS, or YES). Consider that long text with line breaks ('\\n') in cells does not indicate a broken table structure.",
-                "reasoning": "Explanation for the table type and SQL import suitability choices.",
-                "headers": "JSON schema describing the table headers, including data types and descriptions."
+                "reasoning": "Explanation for the SQL import suitability choices, including consideration of subtables if present.",
+                "headers": "JSON schema describing the table headers, including data types and descriptions. Use 'enum' type for fields with a limited set of recurring values."
             },
             keys_to_content="reasoning",
             keys_to_metadata=True
@@ -104,35 +105,58 @@ class TableScreener:
         prepared_content += "\n```"
         return prepared_content
 
-    def analyze_table(self, table_content, table_name=None):
+    def analyze_table(self, table_content, table_name=None, doc_summary=None, doc_type=None, doc_structure=None, doc_reasoning=None):
         """
         TableScreener任务
         - table_content: 表格内容
         - table_name: 表格名称（可选）
+        - doc_summary: 文档摘要（来自DocScreener）
+        - doc_type: 文档类型（来自DocScreener）
+        - doc_structure: 文档结构（来自DocScreener）
+        - doc_reasoning: 文档推理（来自DocScreener）
         """
         prepared_content = self.prepare_content(table_content, table_name)
         
         prompt = (
             "# Table Content\n"
             f"{prepared_content}\n\n"
+        )
+
+        if doc_summary:
+            prompt += f"# Document Summary\n{doc_summary}\n\n"
+        if doc_type:
+            prompt += f"# Document Type\n{doc_type}\n\n"
+        if doc_structure:
+            prompt += f"# Document Structure\n{doc_structure}\n\n"
+        if doc_reasoning:
+            prompt += f"# Document Reasoning\n{doc_reasoning}\n\n"
+
+        prompt += (
             "Please analyze the above table content and provide the following information:\n"
-            "1. The table type based on the given categories.\n"
-            "2. An assessment of its suitability for SQL import.\n"
-            "3. Detailed reasoning for your choices.\n"
-            "4. A JSON schema describing the table headers, including data types and descriptions.\n"
+            "1. An assessment of its suitability for SQL import.\n"
+            "2. Detailed reasoning for your choices.\n"
+            "3. A JSON schema describing the table headers, including data types and descriptions.\n"
             "Ensure your response follows the specified format for easy parsing."
         )
+
         if table_name is not None:
             prompt = f"# Table Name: {table_name}\n\n" + prompt
 
         hint = self.HostMsg(content=prompt)
         return self.agent(hint)
 
-    def __call__(self, input_file_path, md_file_path):
+    def __call__(self, input_file_path, md_file_path, doc_screener_result):
         """
-        处理输入数据，需要同时提供原始文件路径和转换后的Markdown文件路径
+        处理输入数据，需要同时提供原始文件路径、转换后的Markdown文件路径和DocScreener的结果
         """
         with open(md_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        return self.analyze_table(content, os.path.basename(input_file_path))
+        return self.analyze_table(
+            content, 
+            os.path.basename(input_file_path),
+            doc_screener_result.metadata.get('summary'),
+            doc_screener_result.metadata.get('doc_type'),
+            doc_screener_result.metadata.get('structure'),
+            doc_screener_result.metadata.get('reasoning')
+        )

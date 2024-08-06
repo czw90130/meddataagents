@@ -440,86 +440,104 @@ class AgentGroups:
     def document_scan_and_collect(self, input_path, db_name='data.db'):
         """
         扫描并收集文档数据。该函数可处理单个文件或整个目录，
-        使用DocScreener检测每个文件，将适合SQL导入的文件导入数据库，
+        使用DocScreener和TableScreener检测每个文件，将适合SQL导入的文件导入数据库，
         并使用ExcelChunkProcessor将摘要更新到数据库中。
 
         :param input_path: 要处理的文件路径或目录路径
         :param db_name: 数据库文件名，默认为'data.db'
         """
-        # 初始化DocScreener和ExcelChunkProcessor
+        # 初始化DocScreener、TableScreener和ExcelChunkProcessor
         doc_screener = self.get_agent('DocScreener')
+        table_screener = self.get_agent('TableScreener')
         excel_processor = ExcelChunkProcessor(db_name)
 
-        def process_table_file(file_path):
+        def process_file(file_path):
             """
             处理单个文件
 
             :param file_path: 文件路径
             """
-            if not file_path.endswith(('.xlsx', '.csv'))  or '~$' in file_path:
+            if not file_path.endswith(('.xlsx', '.xls', '.csv')) or '~$' in file_path:
                 return
             
-            print(f"Processing TABLE: {file_path}")
+            print(f"Processing file: {file_path}")
             
             # 使用DocScreener分析文件    
-            result = doc_screener(file_path)
+            doc_result = doc_screener(file_path)
             
             # 更新每个工作表的摘要信息
-            summary = f"Summary: {result.metadata['summary']}\n"
-            summary += f"Document Type: {result.metadata['doc_type']}\n"
-            summary += f"Structure: {result.metadata['structure']}\n"
-            summary += f"Reasoning: {result.metadata['reasoning']}"
+            summary = f"Document Summary: {doc_result.metadata['summary']}\n"
+            summary += f"Document Type: {doc_result.metadata['doc_type']}\n"
+            summary += f"Document Structure: {doc_result.metadata['structure']}\n"
+            summary += f"Document Reasoning: {doc_result.metadata['reasoning']}\n"
             
-            # 检查文件是否适合SQL导入
-            if result.metadata['sql_import'] in ['YES', 'TRANS']:
-                # 获取文件扩展名
-                _, file_extension = os.path.splitext(file_path)
+            # 检查文件是否为表格类型
+            if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+                # 使用TableScreener进一步分析
+                table_result = table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
                 
-                # 处理Excel文件
-                if file_extension.lower() in ['.xlsx', '.xls']:
-                    # 处理Excel文件并获取处理信息
-                    processed_info = excel_processor.process_file(file_path)
+                # 更新每个工作表的摘要信息
+                summary += f"SQL Import Suitability: {table_result.metadata['sql_import']}\n"
+                summary += f"Table Analysis Reasoning: {table_result.metadata['reasoning']}\n"
+                
+                # 添加表头信息
+                summary += "Table Headers:\n"
+                headers = table_result.metadata.get('headers', {})
+                for header, details in headers.items():
+                    summary += f"  - {header}: {details['type']} ({details['description']})\n"
+                
+                # 检查文件是否适合SQL导入
+                if table_result.metadata['sql_import'] in ['YES', 'TRANS']:
+                    # 获取文件扩展名
+                    _, file_extension = os.path.splitext(file_path)
                     
-                    # 更新每个工作表的摘要
-                    for info in processed_info:
-                        excel_processor.update_summary(
-                            info['file_path'],
-                            info['sheet_name'],
-                            summary
-                        )
-                    
-                    print(f"Processed Excel file: {file_path}")
-                    
-                # 处理CSV文件
-                elif file_extension.lower() == '.csv':
-                    # 处理CSV文件并获取处理信息
-                    processed_info = excel_processor.process_file(file_path)
-                    
-                    # 更新CSV文件的摘要
-                    if processed_info:
-                        excel_processor.update_summary(
-                            processed_info[0]['file_path'],
-                            None,
-                            summary
-                        )
-                    
-                    print(f"Processed CSV file: {file_path}")
-                    
+                    # 处理Excel文件
+                    if file_extension.lower() in ['.xlsx', '.xls']:
+                        # 处理Excel文件并获取处理信息
+                        processed_info = excel_processor.process_file(file_path)
+                        
+                        # 更新每个工作表的摘要
+                        for info in processed_info:
+                            excel_processor.update_summary(
+                                info['file_path'],
+                                info['sheet_name'],
+                                summary
+                            )
+                        
+                        print(f"Processed Excel file: {file_path}")
+                        
+                    # 处理CSV文件
+                    elif file_extension.lower() == '.csv':
+                        # 处理CSV文件并获取处理信息
+                        processed_info = excel_processor.process_file(file_path)
+                        
+                        # 更新CSV文件的摘要
+                        if processed_info:
+                            excel_processor.update_summary(
+                                processed_info[0]['file_path'],
+                                None,
+                                summary
+                            )
+                        
+                        print(f"Processed CSV file: {file_path}")
+                        
+                    else:
+                        print(f"Unsupported file type for SQL import: {file_path}")
                 else:
-                    print(f"Unsupported file type for SQL import: {file_path}")
+                    print(f"File not suitable for SQL import: {file_path}")
             else:
-                print(f"File not suitable for SQL import: {file_path}")
+                print(f"File is not a table type: {file_path}")
 
         # 判断输入路径是文件还是目录
         if os.path.isfile(input_path):
             # 处理单个文件
-            process_table_file(input_path)
+            process_file(input_path)
         elif os.path.isdir(input_path):
             # 遍历目录中的所有文件
             for root, _, files in os.walk(input_path):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    process_table_file(file_path)
+                    process_file(file_path)
         else:
             print(f"Invalid input path: {input_path}")
             

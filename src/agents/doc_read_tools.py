@@ -7,6 +7,7 @@ import mimetypes
 import hashlib
 import chardet
 import io
+import tempfile
 
 def read_text_file_or_none(file_path):
     """
@@ -260,12 +261,13 @@ def read_excel(excel_file):
 
     return markdown, files
 
-def file2text(file_path):
+def file2text(file_path, tmp_dir=None):
     """
     将各种文件格式转换为文本或Markdown格式。
 
     :param file_path: 要读取的文件路径
-    :return: 包含文件内容的文本或Markdown字符串和保存的文件完整路径列表（如果有的话）
+    :param tmp_dir: 临时目录路径，如果为None则使用系统临时目录
+    :return: 包含文件内容的文本或Markdown字符串、保存的文件完整路径列表（如果有的话）和转换后的Markdown文件路径
     """
     _, file_extension = os.path.splitext(file_path)
     file_extension = file_extension.lower()
@@ -277,22 +279,23 @@ def file2text(file_path):
 ---
 
 """
-    output_md_file_path = f"{os.path.splitext(file_path)[0]}_converted.md"
+    if tmp_dir is None:
+        tmp_dir = tempfile.gettempdir()
+
+    # 保留原始文件的目录结构
+    relative_path = os.path.relpath(file_path, start=os.path.dirname(file_path))
+    output_md_file_path = os.path.join(tmp_dir, relative_path)
+    output_md_file_path = os.path.splitext(output_md_file_path)[0] + "_converted.md"
+
+    # 确保目标目录存在
+    os.makedirs(os.path.dirname(output_md_file_path), exist_ok=True)
+
     if file_extension == '.pdf':
         content, files = read_pdf(file_path)
-        with open(output_md_file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return conversion_notice + content, files, output_md_file_path
     elif file_extension in ['.docx', '.doc']:
         content, files = read_docx(file_path)
-        with open(output_md_file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return conversion_notice + content, files, output_md_file_path
     elif file_extension in ['.xlsx', '.xls']:
         content, files = read_excel(file_path)
-        with open(output_md_file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return conversion_notice + content, files, output_md_file_path
     else:
         # 尝试用 read_text_file_or_none 读取
         content = read_text_file_or_none(file_path)
@@ -300,6 +303,11 @@ def file2text(file_path):
             return content, [], file_path  # 返回文本内容和空的文件列表
         else:
             return None, [], file_path
+
+    with open(output_md_file_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+    return conversion_notice + content, files, output_md_file_path
 
 
 if __name__ == '__main__':
