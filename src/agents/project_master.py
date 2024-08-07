@@ -1,5 +1,8 @@
+import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 
@@ -46,7 +49,7 @@ class ProjectMaster:
         - decision: 是否采纳数据科学家的建议并要求项目经理相应优化项目定义
         - reason: 决策的简要解释
         """
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             {
                 "decision": "Boolean value (True/False). Whether adopt the data scientist's suggestions and ask the project manager to optimize the project definitions accordingly.",
                 "reason": "String that provide a brief explanation for your decision."

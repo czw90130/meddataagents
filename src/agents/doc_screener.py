@@ -1,9 +1,11 @@
 import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
 from functools import partial
 from agentscope.message import Msg
-from .doc_read_tools import file2text
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
+from doc_read_tools import file2text
 
 class DocScreener:
     """
@@ -55,7 +57,7 @@ class DocScreener:
             use_memory=False
         )
 
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             content_hint={
                 "summary": "A concise summary of the document's main points.",
                 "doc_type": "The document type based on the given categories. Prioritize TABLE types for spreadsheet formats.",

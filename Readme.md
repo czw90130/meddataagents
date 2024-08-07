@@ -146,7 +146,8 @@ prompt.py:
 ```
 # -*- coding: utf-8 -*-
 """Used to record prompts, will be replaced by configuration"""
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser, MarkdownJsonObjectParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser, MarkdownJsonObjectParser
 
 class Prompts:
     """Prompts for medagents"""
@@ -158,7 +159,7 @@ class Prompts:
         "```\n{msg}\n```\n\n"
     )
     
-    project_definition_parser = MarkdownJsonDictParser(
+    project_definition_parser = MarkdownYAMLDictParser(
         content_hint={
             "problem_statement": "String. Description of the specific problem or challenge to be addressed.",
             "analysis_objectives": "String. Specific analysis objectives and expected outcomes.",
@@ -179,14 +180,14 @@ class Prompts:
         "```\n{msg}\n```\n\n"
     )
     
-    project_definition_review_parser = MarkdownJsonDictParser(
+    project_definition_review_parser = MarkdownYAMLDictParser(
         {
             "errors" : "String. The err info and your fix suggestions. Don't use double quotes or newline characters inside the string to prevent JSON format errors. Keep Empty String if no Error",
             "suggestions" : "String. Optimization suggestions for the project definition. Don't use double quotes or newline characters inside the string to prevent JSON format errors. Keep Empty String if no Requirements",
         }
     )
     
-    project_definition_judge_parser = MarkdownJsonDictParser(
+    project_definition_judge_parser = MarkdownYAMLDictParser(
         {
             "decision" : "Boolean value (True/False). Whether adopt the data scientist's suggestions and ask the project manager to optimize the project definitions accordingly.",
             "reason": "String that provide a brief explanation for your decision."
@@ -210,7 +211,7 @@ class Prompts:
         "{prev_headers}\n\n"
     )
     
-    table_head_parser = MarkdownJsonDictParser(
+    table_head_parser = MarkdownYAMLDictParser(
         content_hint=(
             "The JSON object with the table headers defined as follows:\n"
             "```\n"
@@ -231,7 +232,7 @@ class Prompts:
 
     )
     
-    label_parser = MarkdownJsonDictParser(
+    label_parser = MarkdownYAMLDictParser(
         content_hint=(
             "JSON object for Medical Entity Annotation defined as follows:\n"
             "```\n"
@@ -252,7 +253,7 @@ class Prompts:
         "```\n{tags}\n```\n"
     )
     
-    data_arch_parser = MarkdownJsonDictParser(
+    data_arch_parser = MarkdownYAMLDictParser(
         content_hint={
             "del_table_names": "A list of table names to be deleted.",
             "del_label_names": "A list of Medical Entity Annotation label names to be deleted.",
@@ -280,7 +281,7 @@ class Prompts:
         "```\n{check}\n```\n\n"
    )
     
-    annotate_review_parser = MarkdownJsonDictParser(
+    annotate_review_parser = MarkdownYAMLDictParser(
         {
             "errors" : "String. The err info and your fix suggestions. Don't use double quotes or newline characters inside the string to prevent JSON format errors. Keep Empty String if no Error",
             "suggestions": "String. Your suggestions for optimization of the annotated information. Don't use double quotes or newline characters inside the string to prevent JSON format errors. Keep Empty String if no suggestion"
@@ -294,7 +295,7 @@ class Prompts:
         "# Information to be Annotated\n```\n{info}\n```\n"
     )
     
-    annotate_judge_parser = MarkdownJsonDictParser(
+    annotate_judge_parser = MarkdownYAMLDictParser(
         {
             "decision" : "Boolean value (True/False). Whether adopt the reviewer's suggestions and ask the annotator to optimize the annotations accordingly.",
             "reason": "String that provide a brief explanation for your decision."

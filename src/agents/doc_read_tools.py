@@ -73,23 +73,24 @@ def save_embedded_file(cell, md_files_dir, file_counter):
             return filename
     return None
 
-def read_pdf(file_path):
+def read_pdf(file_path, tmp_dir):
     """
     读取PDF文件并提取文本内容，同时保存嵌入的图片。
 
     :param file_path: PDF文件的路径
+    :param tmp_dir: 临时目录路径
     :return: 包含PDF文本内容的Markdown字符串和保存的图片文件完整路径列表
     """
     text = ""
     files = []
     pdf_filename = os.path.splitext(os.path.basename(file_path))[0]
-    pdf_files_dir = os.path.join(os.path.dirname(file_path), f"{pdf_filename}_pdf_files")
+    pdf_files_dir = os.path.join(tmp_dir, f"{pdf_filename}_pdf_files")
     os.makedirs(pdf_files_dir, exist_ok=True)
 
     with fitz.open(file_path) as doc:
         total_pages = len(doc)
         for page_num, page in enumerate(doc):
-            text += f"\n\n>[Page {page_num + 1} of {total_pages}]\n\n"  # 包含总页数的页码标记
+            text += f"\n\n>[Page {page_num + 1} of {total_pages}]\n\n"
             text += page.get_text()
             text += "\n\n"
 
@@ -108,22 +109,23 @@ def read_pdf(file_path):
                     img_file.write(image_bytes)
                 
                 files.append(image_path)
-                text += f"![Image]({os.path.relpath(image_path, os.path.dirname(file_path))})\n\n"
+                text += f"![Image]({os.path.relpath(image_path, tmp_dir)})\n\n"
 
     return text, files
 
-def read_docx(file_path):
+def read_docx(file_path, tmp_dir):
     """
     读取DOCX文件并提取文本内容，同时保存嵌入的图片和其他文件。
 
     :param file_path: DOCX文件的路径
+    :param tmp_dir: 临时目录路径
     :return: 包含DOCX文本内容的Markdown字符串和保存的文件完整路径列表
     """
     doc = Document(file_path)
     text = ""
     files = []
     docx_filename = os.path.splitext(os.path.basename(file_path))[0]
-    docx_files_dir = os.path.join(os.path.dirname(file_path), f"{docx_filename}_docx_files")
+    docx_files_dir = os.path.join(tmp_dir, f"{docx_filename}_docx_files")
     os.makedirs(docx_files_dir, exist_ok=True)
 
     for para in doc.paragraphs:
@@ -145,7 +147,7 @@ def read_docx(file_path):
             with open(image_path, "wb") as f:
                 f.write(image.embed)
             files.append(image_path)
-            text += f"![Image]({os.path.relpath(image_path, os.path.dirname(file_path))})\n\n"
+            text += f"![Image]({os.path.relpath(image_path, tmp_dir)})\n\n"
 
     return text, files
 
@@ -176,11 +178,12 @@ def save_embedded_file(cell, excel_files_dir, file_counter):
             # 如果hyperlink没有target属性或target没有content属性，则跳过
             pass
     return None
-def read_excel(excel_file):
+def read_excel(excel_file, tmp_dir):
     """
     将Excel文件转换为Markdown格式，并保存嵌入的图片和文件。
 
     :param excel_file: Excel文件的路径
+    :param tmp_dir: 临时目录路径
     :return: 包含Excel内容的Markdown字符串和保存的文件完整路径列表
     """
     workbook = openpyxl.load_workbook(excel_file, data_only=True)
@@ -189,7 +192,7 @@ def read_excel(excel_file):
     file_counter = 1
 
     excel_filename = os.path.splitext(os.path.basename(excel_file))[0]
-    excel_files_dir = os.path.join(os.path.dirname(excel_file), f"{excel_filename}_excel_files")
+    excel_files_dir = os.path.join(tmp_dir, f"{excel_filename}_excel_files")
     os.makedirs(excel_files_dir, exist_ok=True)
 
     def process_cell_value(value):
@@ -243,13 +246,13 @@ def read_excel(excel_file):
                         img_format = image.format if hasattr(image, 'format') else 'png'
                         img_filename = f"image_{sheet}_{worksheet._images.index(image) + 1}.{img_format}"
                         img_path = os.path.join(excel_files_dir, img_filename)
-                        row_md += f" ![Image]({os.path.relpath(img_path, os.path.dirname(excel_file))}) |"
+                        row_md += f" ![Image]({os.path.relpath(img_path, tmp_dir)}) |"
 
                 embedded_file = save_embedded_file(cell, excel_files_dir, file_counter)
                 if embedded_file:
                     file_path = os.path.join(excel_files_dir, embedded_file)
                     files.append(file_path)
-                    row_md += f" [Embedded File]({os.path.relpath(file_path, os.path.dirname(excel_file))}) |"
+                    row_md += f" [Embedded File]({os.path.relpath(file_path, tmp_dir)}) |"
                     file_counter += 1
 
             markdown += row_md + "\n"
@@ -269,6 +272,9 @@ def file2text(file_path, tmp_dir=None):
     :param tmp_dir: 临时目录路径，如果为None则使用系统临时目录
     :return: 包含文件内容的文本或Markdown字符串、保存的文件完整路径列表（如果有的话）和转换后的Markdown文件路径
     """
+    if tmp_dir is None:
+        tmp_dir = tempfile.gettempdir()
+
     _, file_extension = os.path.splitext(file_path)
     file_extension = file_extension.lower()
 
@@ -279,8 +285,6 @@ def file2text(file_path, tmp_dir=None):
 ---
 
 """
-    if tmp_dir is None:
-        tmp_dir = tempfile.gettempdir()
 
     # 保留原始文件的目录结构
     relative_path = os.path.relpath(file_path, start=os.path.dirname(file_path))
@@ -291,11 +295,11 @@ def file2text(file_path, tmp_dir=None):
     os.makedirs(os.path.dirname(output_md_file_path), exist_ok=True)
 
     if file_extension == '.pdf':
-        content, files = read_pdf(file_path)
+        content, files = read_pdf(file_path, tmp_dir)
     elif file_extension in ['.docx', '.doc']:
-        content, files = read_docx(file_path)
+        content, files = read_docx(file_path, tmp_dir)
     elif file_extension in ['.xlsx', '.xls']:
-        content, files = read_excel(file_path)
+        content, files = read_excel(file_path, tmp_dir)
     else:
         # 尝试用 read_text_file_or_none 读取
         content = read_text_file_or_none(file_path)
@@ -305,7 +309,7 @@ def file2text(file_path, tmp_dir=None):
             return None, [], file_path
 
     with open(output_md_file_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+        f.write(conversion_notice + content)
 
     return conversion_notice + content, files, output_md_file_path
 

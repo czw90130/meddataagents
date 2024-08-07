@@ -1,5 +1,8 @@
+import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 
@@ -43,7 +46,7 @@ class LabelDesigner:
           - Description: 标签的描述
           - Example: 标签使用的示例
         """
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             content_hint=(
                 "JSON object for Medical Entity Annotation defined as follows:\n"
                 "```\n"

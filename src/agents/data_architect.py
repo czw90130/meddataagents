@@ -1,5 +1,8 @@
+import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 
@@ -47,7 +50,7 @@ class DataArchitect:
         - del_label_names: 要删除的医疗实体注释标签名称列表
         - reason: 决策的简要解释
         """
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             content_hint={
                 "del_table_names": "A list of table names to be deleted.",
                 "del_label_names": "A list of Medical Entity Annotation label names to be deleted.",

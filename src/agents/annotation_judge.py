@@ -1,5 +1,8 @@
+import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 
@@ -31,7 +34,7 @@ class AnnotationJudge:
         - decision: 是否采纳审查员的建议并要求注释员相应优化注释
         - reason: 决策的简要解释
         """
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             {
                 "decision": "Boolean value (True/False). Whether adopt the reviewer's suggestions and ask the annotator to optimize the annotations accordingly.",
                 "reason": "String that provide a brief explanation for your decision."

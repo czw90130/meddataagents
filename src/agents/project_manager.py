@@ -1,5 +1,8 @@
+import os
+import sys
 from agentscope.agents import DictDialogAgent
-from agentscope.parsers.json_object_parser import MarkdownJsonDictParser
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 
@@ -60,7 +63,7 @@ class ProjectManager:
         - continue_ask: 是否需要客户提供更多信息
         - message: 如果continue_ask为True，则为向客户提出的问题；否则为其他信息
         """
-        self.parser = MarkdownJsonDictParser(
+        self.parser = MarkdownYAMLDictParser(
             content_hint={
                 "problem_statement": "String. Description of the specific problem or challenge to be addressed.",
                 "analysis_objectives": "String. Specific analysis objectives and expected outcomes.",
