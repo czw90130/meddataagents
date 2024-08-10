@@ -1,5 +1,6 @@
 import os
 import sys
+import pandas as pd
 from agentscope.agents import DictDialogAgent
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from yaml_object_parser import MarkdownYAMLDictParser
@@ -191,11 +192,94 @@ class TableScreener:
         summary = self._generate_summary(doc_screener_result, analyze_result, table_name)
         
         return analyze_result, summary
+    
+    def is_file_unchanged(self, file_path):
+        """
+        检查文件是否已经处理过且内容未发生变化。
+
+        :param file_path: 要检查的文件路径
+        :return: 如果文件已处理且未变化返回True，否则返回False
+        """
+        if self.excel_processor is None:
+            raise RuntimeError("Database not initialized. Call initialize_database() first.")
+
+        _, file_extension = os.path.splitext(file_path)
+        
+        if file_extension.lower() in ['.xlsx', '.xls']:
+            # 处理Excel文件
+            excel_file = pd.ExcelFile(file_path)
+            for sheet_name in excel_file.sheet_names:
+                df = excel_file.parse(sheet_name=sheet_name)
+                content_hash = self.excel_processor.calculate_hash(df)
+                normalized_table = self.excel_processor._normalize_table_name(file_path, sheet_name)
+                if not self.excel_processor.is_file_processed(normalized_table, sheet_name, content_hash):
+                    return False
+            return True
+        
+        elif file_extension.lower() == '.csv':
+            # 处理CSV文件
+            df = pd.read_csv(file_path)
+            content_hash = self.excel_processor.calculate_hash(df)
+            normalized_table = self.excel_processor._normalize_table_name(file_path)
+            return self.excel_processor.is_file_processed(normalized_table, None, content_hash)
+        
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+    
+    def _import_to_database(self, file_path, table_result, summary):
+        """
+        将文件导入到数据库
+
+        :param file_path: 文件路径
+        :param table_result: TableScreener的分析结果
+        :param summary: 生成的摘要
+        """
+        _, file_extension = os.path.splitext(file_path)
+        
+        print("Summary:")
+        print(summary)
+        
+        if file_extension.lower() in ['.xlsx', '.xls']:
+            # 处理Excel文件
+            processed_info = self.excel_processor.process_file(file_path, summary)
+            
+            # 更新每个工作表的摘要
+            for info in processed_info:
+                self.excel_processor.update_summary(
+                    info['file_path'],
+                    info['sheet_name'],
+                    summary
+                )
+            
+            print(f"Processed Excel file: {file_path}")
+            
+        elif file_extension.lower() == '.csv':
+            # 处理CSV文件
+            processed_info = self.excel_processor.process_file(file_path, summary)
+            
+            # 更新CSV文件的摘要
+            if processed_info:
+                self.excel_processor.update_summary(
+                    processed_info[0]['file_path'],
+                    None,
+                    summary
+                )
+            
+            print(f"Processed CSV file: {file_path}")
+            
+        else:
+            print(f"Unsupported file type for SQL import: {file_path}")
 
     def __call__(self, input_file_path, md_file_path, doc_screener_result, need_import=True):
         """
         处理输入数据，需要同时提供原始文件路径、转换后的Markdown文件路径和DocScreener的结果
         """
+        # 检查文件类型是否适合处理
+        doc_type = doc_screener_result.metadata.get('doc_type')
+        if doc_type not in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+            print(f"File is not a table type: {input_file_path}")
+            return doc_screener_result
+        
         with open(md_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
@@ -214,4 +298,4 @@ class TableScreener:
         else:
             print(f"Skipping file import: {input_file_path}")
             
-        return table_result, summary
+        return table_result

@@ -4,6 +4,7 @@ import openpyxl
 import sqlite3
 import sys
 import hashlib
+import json
 
 class ExcelChunkProcessor:
     def __init__(self, db_name='data.db'):
@@ -69,14 +70,19 @@ class ExcelChunkProcessor:
     def _initialize_db(self):
         """
         初始化 SQLite 数据库，创建记录处理文件和摘要的表。
+
+        此函数创建 processed_files 表，用于存储已处理文件的信息，包括文件路径、工作表名、内容哈希、
+        摘要、对应的数据库表名以及列信息。这样可以保持数据的完整性和可追溯性。
         """
         self.ensure_connected()
         create_table_query = """
         CREATE TABLE IF NOT EXISTS processed_files (
-            file_path TEXT PRIMARY KEY,
+            file_path TEXT,
             sheet_name TEXT,
             content_hash TEXT,
-            summary TEXT
+            summary TEXT,
+            table_name TEXT PRIMARY KEY,
+            columns TEXT
         )
         """
         self.conn.execute(create_table_query)
@@ -112,23 +118,25 @@ class ExcelChunkProcessor:
             return stored_hash == new_hash
         return False
 
-    def _mark_file_as_processed(self, file_path, sheet_name, content_hash, summary="default summary (Empty)"):
+    def _mark_file_as_processed(self, file_path, sheet_name, content_hash, table_name, columns, summary="default summary (Empty)"):
         """
-        标记文件和工作表为已处理，并添加摘要。
+        标记文件和工作表为已处理，并添加摘要及表信息。
 
         :param file_path: 文件路径
         :param sheet_name: 工作表名称
         :param content_hash: 文件内容的哈希值
+        :param table_name: 对应的数据库表名
+        :param columns: 表的列信息, 以JSON字符串形式存储
         :param summary: 表的摘要
         """
         self.ensure_connected()
         insert_query = """
-        INSERT INTO processed_files (file_path, sheet_name, content_hash, summary) 
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(file_path) 
-        DO UPDATE SET content_hash = excluded.content_hash, summary = excluded.summary
+        INSERT INTO processed_files (file_path, sheet_name, content_hash, table_name, columns, summary) 
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(table_name) 
+        DO UPDATE SET content_hash = excluded.content_hash, columns = excluded.columns, summary = excluded.summary
         """
-        self.conn.execute(insert_query, (file_path, sheet_name, content_hash, summary))
+        self.conn.execute(insert_query, (file_path, sheet_name, content_hash, table_name, json.dumps(columns, ensure_ascii=False), summary))
         self.conn.commit()
 
     def update_summary(self, file_path, sheet_name, summary):
@@ -261,13 +269,14 @@ class ExcelChunkProcessor:
                     print(f"Skipping unchanged file: {file_path} | {sheet_name}")
                     continue
                 df.to_sql(normalized_table, self.conn, if_exists='replace', index=False)
+                columns = df.columns.tolist()
+                self._mark_file_as_processed(file_path, sheet_name, content_hash, normalized_table, columns, summary)
                 processed_info.append({
                     'file_path': file_path,
                     'sheet_name': sheet_name,
                     'table_name': normalized_table,
-                    'columns': df.columns.tolist()
+                    'columns': columns
                 })
-                self._mark_file_as_processed(normalized_table, sheet_name, content_hash, summary)
 
         elif file_path.endswith('.csv'):
             df = pd.read_csv(file_path)
@@ -277,15 +286,15 @@ class ExcelChunkProcessor:
                 print(f"Skipping unchanged file: {file_path}")
                 return []
             df.to_sql(normalized_table, self.conn, if_exists='replace', index=False)
+            columns = df.columns.tolist()
+            self._mark_file_as_processed(file_path, None, content_hash, normalized_table, columns, summary)
             processed_info.append({
                 'file_path': file_path,
                 'sheet_name': None,
                 'table_name': normalized_table,
-                'columns': df.columns.tolist()
+                'columns': columns
             })
-            self._mark_file_as_processed(normalized_table, None, content_hash, summary)
 
-        self.table_info.extend(processed_info)
         return processed_info
 
     def process_directory(self, directory):
@@ -328,18 +337,24 @@ class ExcelChunkProcessor:
         """
         self.ensure_connected()
         results = []
-        query_template = 'SELECT * FROM "{}" WHERE "{}" = ?'
-        for table in self.table_info:
-            table_name = table['table_name']
-            query = query_template.format(table_name, key)
-            cursor = self.conn.execute(query, (value,))
-            rows = cursor.fetchall()
-            for row in rows:
-                results.append({
-                    'file_path': table['file_path'],
-                    'sheet_name': table['sheet_name'],
-                    'row': dict(zip(table['columns'], row))
-                })
+        query = """
+        SELECT file_path, sheet_name, table_name, columns 
+        FROM processed_files
+        """
+        cursor = self.conn.execute(query)
+        for row in cursor.fetchall():
+            file_path, sheet_name, table_name, columns = row
+            columns = json.loads(columns)
+            if key in columns:
+                search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" = ?'
+                cursor = self.conn.execute(search_query, (value,))
+                for data_row in cursor.fetchall():
+                    results.append({
+                        'file_path': file_path,
+                        'sheet_name': sheet_name,
+                        'table_name': table_name,
+                        'row': dict(zip(columns, data_row))
+                    })
         return results
 
     def get_table_header(self, table_name):
@@ -375,12 +390,9 @@ class ExcelChunkProcessor:
         获取所有已处理表的表头（列名）。
 
         此函数返回数据库中所有表的表头信息。它提供了整个数据库结构的概览，对于理解和分析复杂的数据集很有帮助。
+        返回的信息包括文件路径、工作表名称、数据库表名和列信息。
 
-        参数:
-        无
-
-        返回:
-        dict: 一个字典，其中键是表名，值是包含该表所有列名的列表。
+        :return: dict: 一个字典，其中键是表名，值是包含该表详细信息的字典。
 
         示例:
         >>> processor = ExcelChunkProcessor()
@@ -391,9 +403,16 @@ class ExcelChunkProcessor:
         ...     print("---")
         """
         self.ensure_connected()
+        query = "SELECT file_path, sheet_name, table_name, columns FROM processed_files"
+        cursor = self.conn.execute(query)
         headers = {}
-        for table in self.table_info:
-            headers[table['table_name']] = self.get_table_header(table['table_name'])
+        for row in cursor.fetchall():
+            file_path, sheet_name, table_name, columns = row
+            headers[table_name] = {
+                'file_path': file_path,
+                'sheet_name': sheet_name,
+                'columns': json.loads(columns)
+            }
         return headers
 
     def execute_query(self, query, params=None):

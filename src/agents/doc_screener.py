@@ -147,7 +147,7 @@ if __name__ == "__main__":
     from pathlib import Path
     import agentscope
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from bedrock_model_wrapper import BedrockCheckModelWrapper
+    from bedrock_model_wrapper import BedrockModelWrapper
     
     agentscope.init(
         model_configs="../configs/model_configs.json"

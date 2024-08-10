@@ -8,7 +8,7 @@ from functools import partial
 from agentscope.message import Msg
 from agentscope.agents.user_agent import UserAgent
 
-from bedrock_model_wrapper import BedrockCheckModelWrapper
+from bedrock_model_wrapper import BedrockModelWrapper
 
 from agents.excel_processor import ExcelChunkProcessor
 
@@ -451,41 +451,72 @@ class AgentGroups:
         table_screener = self.get_agent('TableScreener')
         table_screener.initialize_database(db_name)
 
-        def process_file(file_path):
+        def process_data_file(file_path):
             """
             处理单个文件
 
             :param file_path: 文件路径
             """
-            if not file_path.endswith(('.xlsx', '.xls', '.csv')) or '~$' in file_path:
-                return
+            if file_path.endswith(('.xlsx', '.xls', '.csv')) and '~$' not in file_path:
             
-            print(f"Processing file: {file_path}")
-            
-            # 使用DocScreener分析文件    
-            doc_result = doc_screener(file_path)
-            
-            if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
-                table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
-            else:
-                print(f"File is not a table type: {file_path}")
+                print(f"Processing data file: {file_path}")
+                
+                if table_screener.is_file_unchanged(file_path):
+                    print(f"File has not been changed: {file_path}")
+                    return
+
+                # 使用DocScreener分析文件    
+                doc_result = doc_screener(file_path)
+                
+                if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+                    table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
+                else:
+                    print(f"File is not a table type: {file_path}")
             
 
         # 判断输入路径是文件还是目录
         if os.path.isfile(input_path):
             # 处理单个文件
-            process_file(input_path)
+            process_data_file(input_path)
         elif os.path.isdir(input_path):
             # 遍历目录中的所有文件
             for root, _, files in os.walk(input_path):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    process_file(file_path)
+                    process_data_file(file_path)
         else:
             print(f"Invalid input path: {input_path}")
             
         # 测试数据库结果
-        print("Testing database results:")
+
+        excel_processor = ExcelChunkProcessor(db_name)
+    
+        # # 1. 获取所有表名
+        # cursor = excel_processor.conn.cursor()
+        # cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        # tables = cursor.fetchall()
+        # print(f"Tables in database: {tables}")
+
+        # # 2. 对每个表执行简单查询
+        # for (table_name,) in tables:
+        #     if table_name != 'processed_files':  # 跳过内部使用的表
+        #         query = f"SELECT * FROM '{table_name}' LIMIT 5;"
+        #         try:
+        #             result = excel_processor.execute_query(query)
+        #             print(f"\nSample data from {table_name}:")
+        #             for row in result:
+        #                 print(row)
+        #         except Exception as e:
+        #             print(f"Error querying table {table_name}: {e}")
+
+        # # 3. 检查 processed_files 表的内容
+        # query = "SELECT * FROM processed_files;"
+        # result = excel_processor.execute_query(query)
+        # print("\nProcessed files:")
+        # for row in result:
+        #     print(row)
+        
+        print("Testing database content:")
         
         # 获取所有表的表头
         all_headers = excel_processor.get_all_table_headers()
@@ -504,5 +535,5 @@ class AgentGroups:
             row = result['row']
             print(f"Found in {file_path} | {sheet_name}: {row}")
 
-        # 关闭数据库连接
-        excel_processor.close_connection()
+        # # 关闭数据库连接
+        # table_screener.excel_processor.close_connection()
