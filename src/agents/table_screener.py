@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
+from excel_processor import ExcelChunkProcessor
 
 class TableScreener:
     """
@@ -83,6 +84,17 @@ class TableScreener:
             keys_to_metadata=True
         )
         self.agent.set_parser(self.parser)
+        
+        self.excel_processor = None
+        
+        
+    def initialize_database(self, db_name):
+        """
+        初始化数据库连接
+
+        :param db_name: 数据库文件名
+        """
+        self.excel_processor = ExcelChunkProcessor(db_name)
 
     def prepare_content(self, text_content, content_name=None, max_length=8000):
         """
@@ -106,17 +118,46 @@ class TableScreener:
 
         prepared_content += "\n```"
         return prepared_content
+    
+    def _generate_summary(self, doc_result, table_result, table_name=None):
+        """
+        生成文件摘要信息
 
-    def analyze_table(self, table_content, table_name=None, doc_summary=None, doc_type=None, doc_structure=None, doc_reasoning=None):
+        :param doc_result: DocScreener的分析结果
+        :param table_result: TableScreener的分析结果
+        :param table_name: 表格名
+        :return: 摘要字符串
+        """
+        summary = f"Table Summary: {doc_result.metadata['summary']}\n"
+        summary += f"Table Type: {doc_result.metadata['doc_type']}\n"
+        summary += f"Table Structure: {doc_result.metadata['structure']}\n"
+        summary += f"Table Reasoning: {doc_result.metadata['reasoning']}\n"
+        summary += f"SQL Import Suitability: {table_result.metadata['sql_import']}\n"
+        summary += f"Table Analysis Reasoning: {table_result.metadata['reasoning']}\n"
+        if table_name:
+            summary = f"Table Name: {table_name}\n" + summary
+        
+        # 添加表头信息
+        summary += "Table Headers:\n"
+        headers = table_result.metadata.get('headers', {})
+        for header, details in headers.items():
+            summary += f"  - {header}: {details['type']} ({details['description']})\n"
+        
+        return summary
+
+    def analyze_table(self, table_content, doc_screener_result, table_name=None):
         """
         TableScreener任务
         - table_content: 表格内容
+        - doc_screener_result: 文档信息（来自DocScreener）
         - table_name: 表格名称（可选）
-        - doc_summary: 文档摘要（来自DocScreener）
-        - doc_type: 文档类型（来自DocScreener）
-        - doc_structure: 文档结构（来自DocScreener）
-        - doc_reasoning: 文档推理（来自DocScreener）
         """
+        
+        doc_summary = doc_screener_result.metadata.get('summary'),
+        doc_type = doc_screener_result.metadata.get('doc_type'),
+        doc_structure = doc_screener_result.metadata.get('structure'),
+        doc_reasoning = doc_screener_result.metadata.get('reasoning')
+        
         prepared_content = self.prepare_content(table_content, table_name)
         
         prompt = (
@@ -145,20 +186,32 @@ class TableScreener:
             prompt = f"# Table Name: {table_name}\n\n" + prompt
 
         hint = self.HostMsg(content=prompt)
-        return self.agent(hint)
+        analyze_result = self.agent(hint)
+        
+        summary = self._generate_summary(doc_screener_result, analyze_result, table_name)
+        
+        return analyze_result, summary
 
-    def __call__(self, input_file_path, md_file_path, doc_screener_result):
+    def __call__(self, input_file_path, md_file_path, doc_screener_result, need_import=True):
         """
         处理输入数据，需要同时提供原始文件路径、转换后的Markdown文件路径和DocScreener的结果
         """
         with open(md_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        return self.analyze_table(
+        table_result,summary = self.analyze_table(
             content, 
-            os.path.basename(input_file_path),
-            doc_screener_result.metadata.get('summary'),
-            doc_screener_result.metadata.get('doc_type'),
-            doc_screener_result.metadata.get('structure'),
-            doc_screener_result.metadata.get('reasoning')
+            doc_screener_result,
+            os.path.basename(input_file_path)
         )
+        
+        # 检查是否适合SQL导入
+        if need_import and self.excel_processor is not None:
+            if table_result.metadata['sql_import'] in ['YES', 'TRANS']:
+                self._import_to_database(input_file_path, table_result, summary)
+            else:
+                print(f"File not suitable for SQL import: {input_file_path}")
+        else:
+            print(f"Skipping file import: {input_file_path}")
+            
+        return table_result, summary

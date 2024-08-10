@@ -10,7 +10,7 @@ from agentscope.agents.user_agent import UserAgent
 
 from bedrock_model_wrapper import BedrockCheckModelWrapper
 
-from excel_processor import ExcelChunkProcessor
+from agents.excel_processor import ExcelChunkProcessor
 
 
 def check_nested_tags(text):
@@ -449,7 +449,7 @@ class AgentGroups:
         # 初始化DocScreener、TableScreener和ExcelChunkProcessor
         doc_screener = self.get_agent('DocScreener')
         table_screener = self.get_agent('TableScreener')
-        excel_processor = ExcelChunkProcessor(db_name)
+        table_screener.initialize_database(db_name)
 
         def process_file(file_path):
             """
@@ -465,68 +465,11 @@ class AgentGroups:
             # 使用DocScreener分析文件    
             doc_result = doc_screener(file_path)
             
-            # 更新每个工作表的摘要信息
-            summary = f"Document Summary: {doc_result.metadata['summary']}\n"
-            summary += f"Document Type: {doc_result.metadata['doc_type']}\n"
-            summary += f"Document Structure: {doc_result.metadata['structure']}\n"
-            summary += f"Document Reasoning: {doc_result.metadata['reasoning']}\n"
-            
-            # 检查文件是否为表格类型
             if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
-                # 使用TableScreener进一步分析
-                table_result = table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
-                
-                # 更新每个工作表的摘要信息
-                summary += f"SQL Import Suitability: {table_result.metadata['sql_import']}\n"
-                summary += f"Table Analysis Reasoning: {table_result.metadata['reasoning']}\n"
-                
-                # 添加表头信息
-                summary += "Table Headers:\n"
-                headers = table_result.metadata.get('headers', {})
-                for header, details in headers.items():
-                    summary += f"  - {header}: {details['type']} ({details['description']})\n"
-                
-                # 检查文件是否适合SQL导入
-                if table_result.metadata['sql_import'] in ['YES', 'TRANS']:
-                    # 获取文件扩展名
-                    _, file_extension = os.path.splitext(file_path)
-                    
-                    # 处理Excel文件
-                    if file_extension.lower() in ['.xlsx', '.xls']:
-                        # 处理Excel文件并获取处理信息
-                        processed_info = excel_processor.process_file(file_path)
-                        
-                        # 更新每个工作表的摘要
-                        for info in processed_info:
-                            excel_processor.update_summary(
-                                info['file_path'],
-                                info['sheet_name'],
-                                summary
-                            )
-                        
-                        print(f"Processed Excel file: {file_path}")
-                        
-                    # 处理CSV文件
-                    elif file_extension.lower() == '.csv':
-                        # 处理CSV文件并获取处理信息
-                        processed_info = excel_processor.process_file(file_path)
-                        
-                        # 更新CSV文件的摘要
-                        if processed_info:
-                            excel_processor.update_summary(
-                                processed_info[0]['file_path'],
-                                None,
-                                summary
-                            )
-                        
-                        print(f"Processed CSV file: {file_path}")
-                        
-                    else:
-                        print(f"Unsupported file type for SQL import: {file_path}")
-                else:
-                    print(f"File not suitable for SQL import: {file_path}")
+                table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
             else:
                 print(f"File is not a table type: {file_path}")
+            
 
         # 判断输入路径是文件还是目录
         if os.path.isfile(input_path):
