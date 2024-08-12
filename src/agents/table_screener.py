@@ -89,13 +89,17 @@ class TableScreener:
         self.excel_processor = None
         
         
-    def initialize_database(self, db_name):
+    def update_excel_processor(self, excel_processor):
         """
-        初始化数据库连接
+        更新 ExcelChunkProcessor 实例。
 
-        :param db_name: 数据库文件名
+        参数:
+            excel_processor (ExcelChunkProcessor): 新的 ExcelChunkProcessor 实例。
         """
-        self.excel_processor = ExcelChunkProcessor(db_name)
+        if excel_processor is not None:
+            self.excel_processor = excel_processor
+        else:
+            raise ValueError(f"excel_processor must be an instance of ExcelChunkProcessor, But got {type(excel_processor)}")
 
     def prepare_content(self, text_content, content_name=None, max_length=8000):
         """
@@ -200,31 +204,7 @@ class TableScreener:
         :param file_path: 要检查的文件路径
         :return: 如果文件已处理且未变化返回True，否则返回False
         """
-        if self.excel_processor is None:
-            raise RuntimeError("Database not initialized. Call initialize_database() first.")
-
-        _, file_extension = os.path.splitext(file_path)
-        
-        if file_extension.lower() in ['.xlsx', '.xls']:
-            # 处理Excel文件
-            excel_file = pd.ExcelFile(file_path)
-            for sheet_name in excel_file.sheet_names:
-                df = excel_file.parse(sheet_name=sheet_name)
-                content_hash = self.excel_processor.calculate_hash(df)
-                normalized_table = self.excel_processor._normalize_table_name(file_path, sheet_name)
-                if not self.excel_processor.is_file_processed(normalized_table, sheet_name, content_hash):
-                    return False
-            return True
-        
-        elif file_extension.lower() == '.csv':
-            # 处理CSV文件
-            df = pd.read_csv(file_path)
-            content_hash = self.excel_processor.calculate_hash(df)
-            normalized_table = self.excel_processor._normalize_table_name(file_path)
-            return self.excel_processor.is_file_processed(normalized_table, None, content_hash)
-        
-        else:
-            raise ValueError(f"Unsupported file type: {file_extension}")
+        return self.excel_processor.is_file_unchanged(file_path)
     
     def _import_to_database(self, file_path, table_result, summary):
         """

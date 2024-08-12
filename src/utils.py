@@ -52,6 +52,7 @@ def check_nested_tags(text):
 class AgentGroups:
     
     HostMsg = partial(Msg, name="Moderator", role="assistant")
+    dumps_json = partial(json.dumps, separators=(',', ':'), indent=None, ensure_ascii=False)
     def __init__(self, agents_dir='agents'):
         self.agents = {}
         for filename in os.listdir(agents_dir):
@@ -67,156 +68,177 @@ class AgentGroups:
     def get_agent(self, agent_name):
         return self.agents.get(agent_name)
     
-    def process_data(self, text, is_customer=True, review_times=3):
-        # 将数据处理到SQL
-        pass
+    def process_data_file(self, file_path):
+        """
+        处理单个文件
+
+        :param file_path: 文件路径
+        """
+        doc_screener = self.get_agent('DocScreener')
+        table_screener = self.get_agent('TableScreener')
+        
+        if file_path.endswith(('.xlsx', '.xls', '.csv')) and '~$' not in file_path:
+        
+            print(f"Processing data file: {file_path}")
+            
+            if table_screener.is_file_unchanged(file_path):
+                print(f"File has not been changed: {file_path}")
+                return
+
+            # 使用DocScreener分析文件    
+            doc_result = doc_screener(file_path)
+            
+            if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+                table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
+            else:
+                print(f"File is not a table type: {file_path}")
     
-    def define_project(self, text, is_customer=True, review_times=3):
+    def define_project(self, input_path, db_name='project_data.db', review_times=3):
         """
         定义项目工作流函数
         
-        该函数实现了一个完整的项目定义工作流，涉及多个角色协作完成项目定义的过程。
-        主要步骤包括：初始项目定义、审查、优化和最终确认。
+        该函数实现了一个完整的项目定义工作流，包括数据加载、初始分析、项目定义、审查和优化。
         
         涉及的角色：
-        - 项目经理(ProjectManager)：负责初始项目定义，根据客户需求或数据科学家反馈制定项目计划
+        - 用户代理(UserAgent)：提供项目需求和额外信息
+        - 表格初筛员(TableScreener)：分析表格结构和评估SQL导入适用性
+        - 表格数据分析员(TableAnalyst)：深入分析数据库中的表格数据，提供见解
+        - 项目经理(ProjectManager)：负责项目定义，根据数据分析和客户需求制定项目计划
         - 数据科学家(DataScientist)：审查项目定义，提供专业意见和改进建议
         - 项目主管(ProjectMaster)：决定是否采纳数据科学家的建议，最终确定项目定义
-        - 用户代理(UserAgent)：用户输入，用于项目经理需要进一步信息时
         
-        工作流主要步骤：
-        1. 项目经理根据初始输入或客户需求制定项目定义
-        2. 如需更多信息，项目经理向客户提问
-        3. 数据科学家审查项目定义，提供反馈
-        4. 项目主管决定是否采纳数据科学家的建议
-        5. 如果采纳，返回步骤1进行修改；否则，结束流程
+        工作流程：
+        1. 数据加载和初步分析
+        2. 生成数据库摘要
+        3. 获取用户需求
+        4. 初始项目定义
+        5. 项目定义优化循环（包括表格数据分析、项目经理修改、数据科学家审查、项目主管决策）
+        6. 最终项目定义
         
         参数：
-        text (str 或 Msg): 初始项目信息或客户消息
-        is_customer (bool): 是否为客户输入，默认为True
+        input_path (str): 输入数据文件或目录的路径
+        db_name (str): 数据库文件名，默认为'project_data.db'
         review_times (int): 最大审查次数，默认为3次
         
         返回：
-        AgentReply: 包含最终项目定义的代理回复对象
+        tuple: (final_definition, user_requirements)
+            - final_definition (AgentReply): 包含最终项目定义的代理回复对象
+            - user_requirements (str): 用户需求和额外信息的汇总
         """
         
-        # 创建并配置项目经理(ProjectManager)代理
+        # 初始化数据库
+        excel_processor = ExcelChunkProcessor(db_name)
+        
+        # 初始化所有代理
+        table_screener = self.get_agent('TableScreener')
+        table_screener.update_excel_processor(excel_processor)
+        table_analyst = self.get_agent('TableAnalyst')
+        table_analyst.update_excel_processor(excel_processor)
         pm = self.get_agent('ProjectManager')
-        
-        # 创建数据科学家(DataScientist)代理
         data_scientist = self.get_agent('DataScientist')
-        
-        # 创建并配置项目主管(ProjectMaster)代理
         proj_master = self.get_agent('ProjectMaster')
         
+        # 步骤1：数据加载和初步分析
+        print("Step 1: Loading and analyzing data...")
+        # 判断输入路径是文件还是目录
+        if os.path.isfile(input_path):
+            # 处理单个文件
+            self.process_data_file(input_path)
+        elif os.path.isdir(input_path):
+            # 遍历目录中的所有文件
+            for root, _, files in os.walk(input_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    self.process_data_file(file_path)
+        else:
+            raise ValueError(f"Invalid input path: {input_path}")
+
+        # 步骤2：生成数据库摘要
+        print("Step 2: Generating database summary...")
+        database_summary = table_analyst.summarize_database()
+
+        # 步骤3：获取用户需求
+        print("Step 3: Getting user requirements...")
+
+        print(f"{database_summary}\n\nBased on the database summary above, please provide your project requirements and objectives.")
         # 创建用户代理(UserAgent)，用于用户输入
         user_agent = UserAgent()
         
-        # 初始化项目信息字典，包含项目定义所需的关键字段
-        prev_info = {
-            "problem_statement": "",  # 问题陈述：描述需要解决的具体问题或挑战
-            "analysis_objectives": "",  # 分析目标：列出具体的分析目标和预期结果
-            "scope": "",  # 范围：定义分析的时间范围、地理范围和人群范围
-            "key_indicators": "",  # 关键指标：列出对分析至关重要的关键指标和变量
-            "analysis_methods": "",  # 分析方法：描述初步的分析方法和预期结果
-            "continue_ask": True,  # 是否继续询问：标识是否需要向客户获取更多信息
-            "message": ""  # 消息：如果需要继续询问，这里存储给客户的问题
-        }
-        # 将项目信息转换为JSON字符串，用于后续传递
-        prev_info_str = json.dumps(prev_info, separators=(',', ':'), indent=None)
-        
-        # 处理输入消息，构造标准的JSON格式
-        x_json = {
-            "collaborator": "",  # 协作者：标识消息来源，可能是"Customer"或其他角色
-            "message": ""  # 消息内容：存储实际的消息文本
-        }
-        if isinstance(text, Msg):
-            x_json["collaborator"] = text.name
-            x_json["message"] = text.content
-        else:
-            x_json["message"] = text
-        if not isinstance(x_json["message"], str):
-            message_value = x_json["message"]
-            x_json["message"] = f"{message_value}"
-        
-        # 如果是客户输入，设置collaborator为"Customer"
-        if is_customer:
-            x_json["collaborator"] = "Customer"
-        
-        # 记录客户对话，用于后续参考
-        customer_conversation = f"Customer: {x_json['message']}\n"
-        
-        # 将x_json转换为JSON字符串，用于传递给代理
-        x = json.dumps(x_json, separators=(',', ':'), indent=None)
-        
-        review = None
-        while isinstance(x, str) or x.content.get("decision", False):
-            ## 项目经理(ProjectManager)进行项目定义阶段
-            # 准备输入消息，包括之前的项目信息和当前的消息或审查结果
-            msg = x if review is None else review.content
-            
-            # 项目经理处理输入并生成项目定义
-            result = pm(
-                    prev=prev_info_str, # 之前的项目信息，包含问题陈述、分析目标等
-                    msg=msg # 当前的消息或审查结果，可能是客户输入或数据科学家的反馈
-                )
-            
-            # 如果项目经理需要继续询问客户
-            if result.metadata.get("continue_ask", True):
-                message_value = result.metadata.get('message', "")
-                customer_conversation += f"ProjectManager: {message_value}\n"
-                
-                # 客户回答
-                x_json = {"collaborator":"Customer"}
-                x_json["message"] = user_agent().content
-                x = json.dumps(x_json, separators=(',', ':'), indent=None)
-                message_value = x_json['message']
-                customer_conversation = f"Customer: {message_value}\n"
-                
-                continue
-            
-            # 清理结果中的元数据，保留纯粹的项目定义内容
-            if "continue_ask" in result.metadata:
-                del result.metadata["continue_ask"]
-            if "message" in result.metadata:
-                del result.metadata["message"]
-            
-            # 检查是否达到最大审查次数，如果是则结束循环
-            review_times -= 1
-            if review_times < 0:
-                break
-            
-            ## 数据科学家(DataScientist)审查项目定义并提供反馈
-            review = data_scientist(
-                    prev = json.dumps(result.content, separators=(',', ':'), indent=None),  # 当前的项目定义，包含问题陈述、分析目标等
-                    msg = customer_conversation,  # 客户对话历史，用于提供上下文
-                )
-            
-            ## 项目主管(ProjectMaster)判断是否采纳数据科学家建议
-            x = proj_master(
-                    prev=json.dumps(result.content, separators=(',', ':'), indent=None),  # 当前的项目定义
-                    msg=review.content,  # 数据科学家的审查结果，包含错误和优化建议
-                )
-            
-            print(x)  # 打印项目主管的决定，用于调试和跟踪
-        
-        return result  # 返回最终的项目定义结果，包含问题陈述、分析目标、范围、关键指标和分析方法
-    
-    def create_table_tags(self, project_definition_input, tag_config, review_times=3):
-        """
-        创建表格头和标注标签的工作流函数。
+        user_requirements = f"Database Summary:\n{database_summary}\n\nUser Requirements:\n{user_agent().content}"
 
-        该函数涉及三个主要角色：表格设计师(TableDesigner)、标签设计师(LabelDesigner)和数据架构师(DataArchitect)。
-        工作流程包括以下主要步骤：
-        1. 加载标签配置
-        2. 创建代理
-        3. 表格头设计
-        4. 标注标签设计
-        5. 数据架构审核
-        这些步骤会重复执行review_times次，以优化表格头和标注标签。
+        # 步骤4：初始项目定义
+        print("Step 4: Initial project definition...")
+        current_definition = pm(prev="{}", msg=user_requirements)
+
+        # 步骤5：项目定义优化循环
+        print("Step 5: Project definition optimization loop...")
+        remain_times = review_times
+        ds_review = None
+        master_decision = None
+        while remain_times>0:
+            # 首先询问表格数据分析员
+            print("Project Manager needs more information. Asking Table Analyst...")
+            
+            # 表格数据分析员提供见解
+            analyst_input = Msg(
+                name="ProjectManager",
+                role="assistant",
+                content=f"Provide insights based on more database analyze:\n\n{self.dumps_json(current_definition.metadata)}"
+            )
+            analyst_insights = table_analyst(analyst_input).content
+            
+            # 项目经理根据反馈修改定义
+            pm_revision_input = f"Analyst Insights:\n{analyst_insights}"
+            if ds_review is not None:
+                pm_revision_input += f"\n----\n\nData Scientist Feedback:\n{ds_review.content}"
+            if master_decision is not None:
+                pm_revision_input += f"\n----\n\nProject Master Decision:\n{master_decision.content}"
+                
+            pm_revision_input_str = self.dumps_json(pm_revision_input)
+            current_definition = pm(prev=self.dumps_json(current_definition.metadata) + "\n\n" + user_requirements, msg=pm_revision_input_str)
+        
+            # 检查项目经理是否需要更多信息
+            if current_definition.metadata.get("continue_ask", False):
+                # 然后询问用户
+                print("Project Manager needs more information. Asking user...")
+                user_response = user_agent().content
+                user_requirements += f"\n\nAdditional User Information:\n{user_response}"
+                current_definition = pm(prev=self.dumps_json(current_definition.metadata), msg=user_agent().content)
+                continue
+
+            print(f"Optimization round remain {review_times}...")
+            remain_times -= 1
+            
+            # 数据科学家审查
+            ds_review = data_scientist(prev=self.dumps_json(current_definition.metadata) + "\n\n" + user_requirements, msg=f"\n\nDataAnalyst Insights:\n{analyst_insights}")
+            
+            master_decision = None
+            if remain_times < review_times:
+                # 项目主管决策
+                master_decision = proj_master(project_definition=self.dumps_json(current_definition.metadata), 
+                                            data_scientist_feedback=ds_review.content)
+                
+                if not master_decision.content.get("decision", False):
+                    print("Project definition finalized.")
+                    break
+
+        # 步骤6：最终项目定义
+        print("Step 6: Final project definition...")
+        final_definition = current_definition
+        
+        
+        return final_definition, user_requirements
+
+    def create_table_tags(self, project_definition_input, user_requirements, tag_config, review_times=3):
+        """
+        创建表格头和标注标签的增强工作流函数。
+
+        该函数涉及四个主要角色：表格数据分析员(TableAnalyst)、表格设计师(TableDesigner)、标签设计师(LabelDesigner)和数据架构师(DataArchitect)。
+        工作流程包括表格数据分析、表格头设计、标注标签设计和数据架构审核等步骤，这些步骤会重复执行review_times次，以优化表格头和标注标签。
 
         参数:
         project_definition_input (str or Msg): 项目定义，包含项目的详细信息
+        user_requirements (str): 用户需求和额外信息的汇总
         tag_config (str or dict): 标签配置，包含现有的标注标签信息
         review_times (int): 审核和优化的次数，默认为3次
 
@@ -229,103 +251,130 @@ class AgentGroups:
         # 加载标签配置
         if isinstance(tag_config, str):
             if os.path.isfile(tag_config):
-                # 如果tag_config是文件路径，从文件中读取配置
                 with open(tag_config, "r", encoding='utf-8') as f:
                     json_data = json.load(f)
                     annotate_tags = dict(json_data['tags'])
             else:
-                # 如果tag_config是JSON字符串，直接解析
-                json_data = json.load(tag_config) # type: ignore
+                json_data = json.loads(tag_config)
                 annotate_tags = dict(json_data['tags'])
         elif isinstance(tag_config, dict):
             if isinstance(tag_config['tags'], str):
-                # 如果tag_config是字典，但tags是字符串，解析tags
                 json_data = json.loads(tag_config['tags'])
                 annotate_tags = dict(json_data)
             else:
-                # 如果tag_config是字典，tags也是字典，直接使用
                 annotate_tags = tag_config['tags']
         else:
             raise ValueError("Invalid tag_config format")
         
         # 创建代理
-        # 创建表格设计师(TableDesigner)代理，并设置解析器
-        table = self.get_agent('TableDesigner')
-        
-        # 创建标签设计师(LabelDesigner)代理，并设置解析器
-        label = self.get_agent('LabelDesigner')
-        
-        # 创建数据架构师(DataArchitect)代理，并设置解析器
-        da = self.get_agent('DataArchitect')
+        table_analyst = self.get_agent('TableAnalyst')
+        table_designer = self.get_agent('TableDesigner')
+        label_designer = self.get_agent('LabelDesigner')
+        data_architect = self.get_agent('DataArchitect')
         
         # 处理项目定义输入
         if isinstance(project_definition_input, Msg):
-            # 如果输入是Msg对象，提取其内容
-            project_definition = project_definition_input.content
+            if project_definition_input.metadata:
+                project_definition = self.dumps_json(project_definition_input.metadata)
+            else:
+                project_definition = project_definition_input.content
+        elif not isinstance(project_definition_input, str):
+            project_definition = self.dumps_json(project_definition_input)
         else:
-            # 否则直接使用输入作为项目定义
             project_definition = project_definition_input
-            
-        if not isinstance(project_definition, str):
-            # 如果项目定义不是字符串，将其转换为JSON字符串
-            project_definition = json.dumps(project_definition, separators=(',', ':'), indent=None)
-            
-        prev_headers = []  # 用于存储已创建的表头
-        table_headers = {}  # 用于存储最终的表头定义
+                
+        # 初始化表头和标签
+        table_headers = {}
+        prev_headers = []
 
-        # 开始review_times次的优化循环
+        # 初始表头设计
+        initial_headers = table_designer(
+            project_definition=project_definition,
+            user_requirements=user_requirements,
+            analyst_insights="",
+            prev_headers="{}",
+        )
+        table_headers.update(initial_headers.content)
+        prev_headers.extend(initial_headers.content.keys())
+
+        # 开始优化循环
         for i in range(review_times):
-            # 将已创建的表头转换为JSON字符串
-            prev_headers_str = json.dumps(prev_headers, separators=(',', ':'), indent=None)
+            print(f"Optimization round {i+1}/{review_times}")
+
+            # 表格数据分析阶段
+            table_header_str = self.dumps_json(table_headers)
+            tags_json_str = self.dumps_json(annotate_tags)
+            analyst_input = Msg(
+                name="ProjectManager",
+                role="assistant",
+                content=("Analyze the database for designing table headers and annotation tags "
+                         "based on the project definition, user requirements, "
+                         "current table headers, and current tags:\n\n"
+                         f"Project Definition:\n{project_definition}\n\n"
+                         f"User Requirements:\n{user_requirements}\n\n"
+                         f"Current Headers:\n{table_header_str}\n\n"
+                         f"Current Tags:\n{tags_json_str}")
+            )
+            analyst_insights = table_analyst(analyst_input).content
+
+            # 表格设计阶段
+            prev_headers_str = self.dumps_json(prev_headers)
+            new_table_headers = table_designer(
+                project_definition=project_definition,
+                user_requirements=user_requirements,
+                analyst_insights=analyst_insights,
+                prev_headers=prev_headers_str,
+            )
             
-            ## 表格设计阶段，调用表格设计师(TableDesigner)代理，获取新的表头定义
-            new_table_headers = table(
-                    project_definition=project_definition,  # 项目定义
-                    prev_headers=prev_headers_str,  # 已创建的表头
-                )
+            # 标注标签设计阶段
+            new_tags = label_designer(
+                project_definition=project_definition,
+                user_requirements=user_requirements,
+                analyst_insights=analyst_insights,
+                headers=table_header_str,
+                tags=tags_json_str,
+            )
             
-            # 更新已创建的表头列表和最终表头定义
-            prev_headers.extend(new_table_headers.content.keys())
+            # 数据架构审核阶段
+            del_list = data_architect(
+                project_definition=project_definition,
+                user_requirements=user_requirements,
+                analyst_insights=analyst_insights,
+                headers=table_header_str,
+                tags=tags_json_str,
+            )
+            
+            # 更新表头和标签
+            old_headers = set(table_headers.keys())
+            old_tags = set(annotate_tags.keys())
+
             for k, v in new_table_headers.content.items():
                 if k not in table_headers:
                     table_headers[k] = v
-            
-            # 将最新的表头定义转换为JSON字符串
-            table_header_str = json.dumps(table_headers, separators=(',', ':'), indent=None)
-            
-            ## 标注标签设计阶段
-            # 将当前的标注标签转换为JSON字符串
-            tags_json_str = json.dumps(annotate_tags, separators=(',', ':'), indent=None)
-            # 调用标签设计师(LabelDesigner)代理，获取新的标注标签
-            new_tags = label(
-                    project_definition=project_definition,  # 项目定义
-                    headers=table_header_str,  # 最新的表头定义
-                    tags=tags_json_str,  # 当前的标注标签
-                )
-            
-            # 更新标注标签定义
+                    prev_headers.append(k)
+
             for k, v in new_tags.content.items():
                 if k not in annotate_tags:
                     annotate_tags[k] = v
-                    
-            ## 数据架构审核阶段，调用数据架构师(DataArchitect)代理，获取需要删除的表头和标签
-            del_list = da(
-                    project_definition=project_definition,  # 项目定义
-                    headers=table_header_str,  # 最新的表头定义
-                    tags=tags_json_str,  # 最新的标注标签
-                )
-            
-            # 从表头定义中删除指定的表头
+
+            # 删除指定的表头和标签
             del_table_names = del_list.metadata.get('del_table_names', [])
             for del_name in del_table_names:
                 if del_name in table_headers:
                     del table_headers[del_name]
-            
-            # 从标注标签定义中删除指定的标签
+
             del_label_names = del_list.metadata.get('del_label_names', [])
             for del_name in del_label_names:
                 if del_name in annotate_tags:
                     del annotate_tags[del_name]
+
+            # 检查是否有变化
+            new_headers = set(table_headers.keys())
+            new_tags = set(annotate_tags.keys())
+
+            if old_headers == new_headers and old_tags == new_tags:
+                print(f"No changes detected after round {i+1}. Ending optimization.")
+                break
 
         # 返回最终的表头定义和标注标签定义
         return table_headers, annotate_tags
@@ -359,19 +408,19 @@ class AgentGroups:
                 # 如果 tag_config 是文件路径，从文件中读取配置
                 with open(tag_config, "r", encoding='utf-8') as f:
                     json_data = json.load(f)
-                    tags_json_str = json.dumps(json_data['tags'], separators=(',', ':'), indent=None)
+                    tags_json_str = self.dumps_json(json_data['tags'])
                     require_str = json_data['require']
             else:
                 # 如果 tag_config 是 JSON 字符串，直接解析
                 json_data = json.load(tag_config) # type: ignore
-                tags_json_str = json.dumps(json_data['tags'], separators=(',', ':'), indent=None)
+                tags_json_str = self.dumps_json(json_data['tags'])
                 require_str = json_data['require']
         elif isinstance(tag_config, dict):
             # 如果 tag_config 是字典，提取标签和要求信息
             if isinstance(tag_config['tags'], str):
                 tags_json_str = tag_config['tags']
             else:
-                tags_json_str = json.dumps(tag_config['tags'], separators=(',', ':'), indent=None)
+                tags_json_str = self.dumps_json(tag_config['tags'])
             require_str = tag_config['require']
         else:
             raise ValueError("Invalid tag_config format")
@@ -403,7 +452,7 @@ class AgentGroups:
             ## 审核员(AnnotationReviewer)进行审核
             # 检查标签的嵌套情况
             check = check_nested_tags(result.content)
-            check_str = json.dumps(check, separators=(',', ':'), indent=None)
+            check_str = self.dumps_json(check)
             
             # 审核员执行审核任务
             review = reviewer(
@@ -436,104 +485,3 @@ class AgentGroups:
                 )  # 判断是否需要重新标注
 
         return result  # 返回最终的标注结果
-    
-    def document_scan_and_collect(self, input_path, db_name='data.db'):
-        """
-        扫描并收集文档数据。该函数可处理单个文件或整个目录，
-        使用DocScreener和TableScreener检测每个文件，将适合SQL导入的文件导入数据库，
-        并使用ExcelChunkProcessor将摘要更新到数据库中。
-
-        :param input_path: 要处理的文件路径或目录路径
-        :param db_name: 数据库文件名，默认为'data.db'
-        """
-        # 初始化DocScreener、TableScreener和ExcelChunkProcessor
-        doc_screener = self.get_agent('DocScreener')
-        table_screener = self.get_agent('TableScreener')
-        table_screener.initialize_database(db_name)
-
-        def process_data_file(file_path):
-            """
-            处理单个文件
-
-            :param file_path: 文件路径
-            """
-            if file_path.endswith(('.xlsx', '.xls', '.csv')) and '~$' not in file_path:
-            
-                print(f"Processing data file: {file_path}")
-                
-                if table_screener.is_file_unchanged(file_path):
-                    print(f"File has not been changed: {file_path}")
-                    return
-
-                # 使用DocScreener分析文件    
-                doc_result = doc_screener(file_path)
-                
-                if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
-                    table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
-                else:
-                    print(f"File is not a table type: {file_path}")
-            
-
-        # 判断输入路径是文件还是目录
-        if os.path.isfile(input_path):
-            # 处理单个文件
-            process_data_file(input_path)
-        elif os.path.isdir(input_path):
-            # 遍历目录中的所有文件
-            for root, _, files in os.walk(input_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    process_data_file(file_path)
-        else:
-            print(f"Invalid input path: {input_path}")
-            
-        # 测试数据库结果
-
-        excel_processor = ExcelChunkProcessor(db_name)
-    
-        # # 1. 获取所有表名
-        # cursor = excel_processor.conn.cursor()
-        # cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        # tables = cursor.fetchall()
-        # print(f"Tables in database: {tables}")
-
-        # # 2. 对每个表执行简单查询
-        # for (table_name,) in tables:
-        #     if table_name != 'processed_files':  # 跳过内部使用的表
-        #         query = f"SELECT * FROM '{table_name}' LIMIT 5;"
-        #         try:
-        #             result = excel_processor.execute_query(query)
-        #             print(f"\nSample data from {table_name}:")
-        #             for row in result:
-        #                 print(row)
-        #         except Exception as e:
-        #             print(f"Error querying table {table_name}: {e}")
-
-        # # 3. 检查 processed_files 表的内容
-        # query = "SELECT * FROM processed_files;"
-        # result = excel_processor.execute_query(query)
-        # print("\nProcessed files:")
-        # for row in result:
-        #     print(row)
-        
-        print("Testing database content:")
-        
-        # 获取所有表的表头
-        all_headers = excel_processor.get_all_table_headers()
-        for table_name, headers in all_headers.items():
-            print(f"Table: {table_name}, Headers: {headers}")
-            
-        # 搜索测试
-        key = '唯一号'
-        value = 'zy@20264232'
-        
-        results = excel_processor.search_across_tables(key, value)
-        
-        for result in results:
-            file_path = result['file_path']
-            sheet_name = result['sheet_name']
-            row = result['row']
-            print(f"Found in {file_path} | {sheet_name}: {row}")
-
-        # # 关闭数据库连接
-        # table_screener.excel_processor.close_connection()

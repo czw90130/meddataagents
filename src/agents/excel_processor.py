@@ -296,6 +296,34 @@ class ExcelChunkProcessor:
             })
 
         return processed_info
+    
+    def is_file_unchanged(self, file_path):
+        """
+        检查文件是否已经处理过且内容未发生变化。
+
+        :param file_path: 要检查的文件路径
+        :return: 如果文件已处理且未变化返回True，否则返回False
+        """
+        _, file_extension = os.path.splitext(file_path)
+        
+        if file_extension.lower() in ['.xlsx', '.xls']:
+            # 处理Excel文件
+            excel_file = pd.ExcelFile(file_path)
+            for sheet_name in excel_file.sheet_names:
+                df = excel_file.parse(sheet_name=sheet_name)
+                content_hash = self.calculate_hash(df)
+                if not self.is_file_processed(file_path, sheet_name, content_hash):
+                    return False
+            return True
+        
+        elif file_extension.lower() == '.csv':
+            # 处理CSV文件
+            df = pd.read_csv(file_path)
+            content_hash = self.calculate_hash(df)
+            return self.is_file_processed(file_path, None, content_hash)
+        
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
 
     def process_directory(self, directory):
         """
@@ -309,53 +337,127 @@ class ExcelChunkProcessor:
                     file_path = os.path.join(root, file)
                     self.process_file(file_path)
 
-    def search_across_tables(self, key, value):
+    def search_across_tables(self, key, value=None, is_exact_match=False, return_full_row=False, is_unique_result=False, page=1, page_size=10):
         """
         在所有已处理的表中搜索指定的键值对。
 
-        此函数遍历所有已处理的表，查找包含指定键值对的行。它对于在多个文件和表中查找特定数据非常有用。
+        此函数遍历所有已处理的表，根据指定的匹配模式查找包含特定键值对的数据。
+        它支持分页，以防止返回过多结果，并提供了多种匹配模式以满足不同的搜索需求。
 
         参数:
         key (str): 要搜索的列名（键）。
-        value (Any): 要匹配的值。
+        value (Any, optional): 要匹配的值。当为None或空字符串时，将返回该键所有的数据。
+        is_exact_match (bool, optional): 是否进行精确匹配。否则返回所有包含该值的数据。
+        return_full_row (bool, optional): 是否返回整行数据。如果为False，则只返回匹配的键值。
+        is_unique_result (bool, optional): 是否返回去重后的结果。
+        page (int, optional): 要返回的页码，默认为 1。
+        page_size (int, optional): 每页的结果数量，默认为 10。
 
         返回:
-        list: 包含匹配结果的字典列表。每个字典包含以下键：
-            - 'file_path': 匹配行所在的文件路径
-            - 'sheet_name': 匹配行所在的工作表名称（对于CSV文件为None）
-            - 'row': 包含匹配行所有列数据的字典
+        dict: 包含以下键的字典：
+            - 'results': 匹配结果的列表。每个结果是一个字典，包含：
+                - 'file_path': 匹配数据所在的文件路径
+                - 'sheet_name': 匹配数据所在的工作表名称（对于CSV文件为None）
+                - 'table_name': 匹配数据所在的数据库表名
+                - 'data': 包含匹配数据的字典（在 return_full_row 为 False 时只包含指定键的值）
+            - 'total_count': 总匹配结果数
+            - 'unique_count': 去重后的匹配结果数
+            - 'page': 当前页码
+            - 'total_pages': 总页数
 
         示例:
         >>> processor = ExcelChunkProcessor()
-        >>> results = processor.search_across_tables('employee_id', '12345')
-        >>> for result in results:
-        ...     print(f"Found in {result['file_path']} | {result['sheet_name']}: {result['row']}")
+        >>> # 精确匹配，返回所有结果
+        >>> results = processor.search_across_tables('患者标识', '66a4f976433ccc70b6a055345b22f74a')
+        >>> # 包含匹配，返回去重结果
+        >>> results = processor.search_across_tables('姓名', '张', is_exact_match=False, is_unique_result=True)
+        >>> # 仅返回匹配的键值，返回所有结果
+        >>> results = processor.search_across_tables('关联号', return_full_row=False)
+        >>> # 遍历结果
+        >>> for result in results['results']:
+        ...     print(f"Found in {result['file_path']} | {result['sheet_name']}: {result['data']}")
+        >>> print(f"Total results: {results['total_count']}, Unique results: {results['unique_count']}")
+        >>> print(f"Page: {results['page']}/{results['total_pages']}")
 
         注意:
-        - 键值匹配可以在表总结(summary)中获得。
         - 搜索区分大小写。
+        - 当 value 为 None 或空字符串时，将返回包含指定键的所有数据。
+        - 当 return_full_row 为 False 时，仅返回指定键的值，而不是整行数据。
+        - 确保提供的键存在于至少一个表中，否则可能不会返回任何结果。
+        - 当 is_unique_result 为 True 时，返回去重后的结果。
         """
         self.ensure_connected()
-        results = []
+        all_results = []
+        unique_results = set()
+
         query = """
         SELECT file_path, sheet_name, table_name, columns 
         FROM processed_files
         """
         cursor = self.conn.execute(query)
+
         for row in cursor.fetchall():
             file_path, sheet_name, table_name, columns = row
             columns = json.loads(columns)
             if key in columns:
-                search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" = ?'
-                cursor = self.conn.execute(search_query, (value,))
+                if is_exact_match:
+                    if value is None or value == "":
+                        search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" IS NOT NULL'
+                        params = ()
+                    else:
+                        search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" = ?'
+                        params = (value,)
+                else:
+                    if value is None or value == "":
+                        search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" IS NOT NULL'
+                        params = ()
+                    else:
+                        search_query = f'SELECT * FROM "{table_name}" WHERE "{key}" LIKE ?'
+                        params = (f'%{value}%',)
+
+                cursor = self.conn.execute(search_query, params)
                 for data_row in cursor.fetchall():
-                    results.append({
+                    if not return_full_row:
+                        result_data = {key: data_row[columns.index(key)]}
+                    else:
+                        result_data = dict(zip(columns, data_row))
+
+                    result = {
                         'file_path': file_path,
                         'sheet_name': sheet_name,
                         'table_name': table_name,
-                        'row': dict(zip(columns, data_row))
-                    })
-        return results
+                        'data': result_data
+                    }
+
+                    # 将结果转换为排序后的JSON字符串
+                    unique_result = json.dumps(result, sort_keys=True, ensure_ascii=False)
+                    unique_results.add(unique_result)
+
+                    all_results.append(result)
+
+        if is_unique_result:
+            results = [json.loads(r) for r in unique_results]
+        else:
+            results = all_results
+
+        total_count = len(all_results)
+        unique_count = len(unique_results)
+        total_pages = (len(results) + page_size - 1) // page_size
+
+        # Ensure page is within valid range
+        page = max(1, min(page, total_pages))
+
+        # Calculate start and end indices for the current page
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+
+        return {
+            'results': results[start_index:end_index],
+            'total_count': total_count,
+            'unique_count': unique_count,
+            'page': page,
+            'total_pages': total_pages
+        }
 
     def get_table_header(self, table_name):
         """
@@ -387,31 +489,53 @@ class ExcelChunkProcessor:
 
     def get_all_table_headers(self):
         """
-        获取所有已处理表的表头（列名）。
+        获取所有已处理表的表头（列名）、摘要信息和记录数。
 
-        此函数返回数据库中所有表的表头信息。它提供了整个数据库结构的概览，对于理解和分析复杂的数据集很有帮助。
-        返回的信息包括文件路径、工作表名称、数据库表名和列信息。
+        此函数返回数据库中所有表的表头、摘要信息和记录数。它提供了整个数据库结构的全面概览，
+        包括每个表的列名、文件信息、摘要描述以及表中的记录数量，对于理解和分析复杂的数据集非常有帮助。
 
-        :return: dict: 一个字典，其中键是表名，值是包含该表详细信息的字典。
+        返回:
+        dict: 一个字典，其中键是表名table_name，值是包含该表详细信息的字典。每个表的详细信息包括：
+            - 'file_path': 文件路径
+            - 'sheet_name': 工作表名称（对于CSV文件为None）
+            - 'columns': 列名列表
+            - 'summary': 表的摘要信息
+            - 'record_count': 每个表中的总记录数。
 
         示例:
         >>> processor = ExcelChunkProcessor()
         >>> all_headers = processor.get_all_table_headers()
-        >>> for table, headers in all_headers.items():
+        >>> for table, info in all_headers.items():
         ...     print(f"Table: {table}")
-        ...     print(f"Columns: {headers}")
+        ...     print(f"File Path: {info['file_path']}")
+        ...     print(f"Sheet Name: {info['sheet_name']}")
+        ...     print(f"Columns: {info['columns']}")
+        ...     print(f"Summary: {info['summary']}")
+        ...     print(f"Record Count: {info['record_count']}")
         ...     print("---")
+
+        注意:
+        - 返回的字典可能会很大，取决于已处理的文件数量。
+        - 对于CSV文件，'sheet_name'值将为None。
+        - 如果某个表没有摘要信息，'summary'字段将为None或默认值。
         """
         self.ensure_connected()
-        query = "SELECT file_path, sheet_name, table_name, columns FROM processed_files"
+        query = "SELECT file_path, sheet_name, table_name, columns, summary FROM processed_files"
         cursor = self.conn.execute(query)
         headers = {}
         for row in cursor.fetchall():
-            file_path, sheet_name, table_name, columns = row
+            file_path, sheet_name, table_name, columns, summary = row
+            # 获取表中的记录数
+            count_query = f"SELECT COUNT(*) FROM '{table_name}'"
+            count_cursor = self.conn.execute(count_query)
+            record_count = count_cursor.fetchone()[0]
+
             headers[table_name] = {
                 'file_path': file_path,
                 'sheet_name': sheet_name,
-                'columns': json.loads(columns)
+                'columns': json.loads(columns),
+                'summary': summary,
+                'record_count': record_count
             }
         return headers
 

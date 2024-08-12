@@ -1,11 +1,16 @@
 import os
 import sys
+import math
+import numpy as np
+import scipy.stats as stats
+from typing import Dict, Any, List, Tuple, Optional
 import pandas as pd
 from agentscope.agents import ReActAgent
 from agentscope.service import ServiceResponse, ServiceExecStatus, ServiceToolkit
 from agentscope.message import Msg
 from excel_processor import ExcelChunkProcessor
 import json
+import hashlib
 
 class TableAnalyst(ReActAgent):
     """
@@ -18,7 +23,7 @@ class TableAnalyst(ReActAgent):
         excel_processor (ExcelChunkProcessor): 用于处理 Excel 文件和数据库操作的实例。
     """
 
-    def __init__(self, name, model_config_name, excel_processor=None):
+    def __init__(self):
         """
         初始化 TableAnalyst 实例。
 
@@ -27,26 +32,25 @@ class TableAnalyst(ReActAgent):
             model_config_name (str): 使用的模型配置名称。
             excel_processor (ExcelChunkProcessor): ExcelChunkProcessor 实例，用于数据库操作。
         """
-        self.excel_processor = excel_processor
+        self.excel_processor = None
         
         service_toolkit = ServiceToolkit()
         
         # 添加 ExcelChunkProcessor 的方法
-        service_toolkit.add(self.get_summary)
-        service_toolkit.add(self.get_table_header)
         service_toolkit.add(self.get_all_table_headers)
-        service_toolkit.add(self.search_across_tables)
-        service_toolkit.add(self.execute_query)
+        service_toolkit.add(self.run_sql_query)
         service_toolkit.add(self.execute_python_code)
-        service_toolkit.add(self.update_summary)
         
         super().__init__(
-            name=name,
-            model_config_name=model_config_name,
+            name=TableAnalyst,
+            model_config_name="claude3",
             service_toolkit=service_toolkit,
             sys_prompt=self._generate_sys_prompt(),
             verbose=True
         )
+        
+        self.database_summary = None
+        self.db_hash = None
         
     def update_excel_processor(self, excel_processor):
         """
@@ -55,252 +59,213 @@ class TableAnalyst(ReActAgent):
         参数:
             excel_processor (ExcelChunkProcessor): 新的 ExcelChunkProcessor 实例。
         """
-        if isinstance(excel_processor, ExcelChunkProcessor):
+        if excel_processor is not None:
             self.excel_processor = excel_processor
+            self.db_hash = self._calculate_db_hash()
         else:
-            raise ValueError("excel_processor must be an instance of ExcelChunkProcessor.")
+            raise ValueError(f"excel_processor must be an instance of ExcelChunkProcessor, But got {type(excel_processor)}")
 
+    def _calculate_db_hash(self) -> str:
+        """计算数据库文件的哈希值"""
+        with open(self.excel_processor.db_name, 'rb') as f:
+            return hashlib.md5(f.read()).hexdigest()
+        
+    def _get_summary_cache_path(self) -> str:
+        """获取摘要缓存文件的路径"""
+        db_dir = os.path.dirname(self.excel_processor.db_name)
+        if db_dir == '':
+            db_dir = '.'
+        db_name = os.path.basename(self.excel_processor.db_name)
+        return os.path.join(db_dir, f"{db_name}.summary_{self.db_hash}.md")
+    
+    def _load_summary_from_cache(self) -> Optional[str]:
+        """从缓存文件加载摘要"""
+        cache_path = self._get_summary_cache_path()
+        if os.path.exists(cache_path):
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return None
+    def _save_summary_to_cache(self, summary: str):
+        """将摘要保存到缓存文件"""
+        cache_path = self._get_summary_cache_path()
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            f.write(summary)
+            
+    def _clean_invalid_cache_files(self):
+        """清理无效的缓存文件"""
+        db_dir = os.path.dirname(self.excel_processor.db_name)
+        if db_dir == '':
+            db_dir = '.'
+        db_name = os.path.basename(self.excel_processor.db_name)
+        for file in os.listdir(db_dir):
+            if file.startswith(f"{db_name}.summary_") and file.endswith(".md"):
+                if not file.endswith(f"{self.db_hash}.md"):
+                    os.remove(os.path.join(db_dir, file))
     def _generate_sys_prompt(self):
         """
-        生成系统提示，指导 AI 如何使用可用的方法进行数据分析。
+        生成简洁、专注的系统提示，指导 AI 如何进行数据分析。
 
         返回:
-            str: 详细的系统提示字符串。
+            str: 系统提示字符串。
         """
         return (
-            "You are a Table Analyst specializing in analyzing data stored in SQL databases. "
-            "Your task is to understand the data structure, perform analysis, and provide insights. "
-            "You can use various methods to interact with the database and perform data analysis.\n\n"
-            "Available methods:\n"
-            "1. get_summary(file_path, sheet_name): Get summary of a specific table.\n"
-            "2. get_table_header(table_name): Get column names of a specific table.\n"
-            "3. get_all_table_headers(): Get headers of all tables in the database.\n"
-            "4. search_across_tables(key, value): Search for a specific key-value pair across all tables.\n"
-            "5. execute_query(query, params=None): Execute a custom SQL query.\n"
-            "6. execute_python_code(code): Execute custom Python code for data analysis.\n"
-            "7. update_summary(file_path, sheet_name, summary): Update the summary of a specific table.\n\n"
-            "When analyzing data, follow these steps:\n"
-            "1. Understand the data structure using get_all_table_headers() and get_table_header().\n"
-            "2. Analyze individual tables using get_summary() and execute_query().\n"
-            "3. Identify relationships between tables.\n"
-            "4. Perform in-depth data analysis using execute_query() and execute_python_code().\n"
-            "5. Summarize findings for each table and update summaries using update_summary().\n"
-            "6. Finally, provide an overall database summary and insights.\n"
-            "Remember to structure your analysis logically and provide clear explanations."
+            "You are an advanced Table Analyst for SQL databases. Your role is to analyze data structures, "
+            "perform in-depth analysis, and provide valuable insights. Follow these guidelines:\n\n"
+            
+            "1. Use available methods effectively:\n"
+            "   - get_all_table_headers(): Understand database structure\n"
+            "   - run_sql_query(): Perform complex SQL analysis\n"
+            "   - execute_python_code(): Conduct advanced, combined analysis\n\n"
+            
+            "2. Analysis principles:\n"
+            "   - Treat all tables equally, without bias\n"
+            "   - Ensure unbiased analysis in cross-table relationships\n"
+            "   - Consider broader context and interconnections\n"
+            "   - For long-text fields, note their existence and potential relevance\n\n"
+            
+            "3. Focus on:\n"
+            "   - Identifying actionable trends and insights\n"
+            "   - Providing clear, concise summaries\n"
+            "   - Suggesting data-driven recommendations\n\n"
+            
+            "4. Remember:\n"
+            "   - Avoid analyzing long-text content in detail\n"
+            "   - Be skeptical of SQL results when analyzing long text fields\n"
+            "   - Other specialized agents can process long-text data if needed\n\n"
+            
+            "Aim for accurate, insightful, and concise analysis."
         )
 
-    def summarize_database(self):
+    def get_all_table_headers(self, *args, **kwargs) -> ServiceResponse:
         """
-        触发数据库总结任务。
+        Retrieves headers, summary information, and record counts for all processed tables in the database.
 
-        这个方法创建一个任务消息，要求 AI 对整个数据库进行全面分析和总结。
-        分析过程将利用 TableAnalyst 的 ReAct 能力，按照系统提示中定义的步骤进行。
+        This function provides a comprehensive overview of the entire database structure, including column names,
+        file information, summary descriptions, and record counts for each table.
 
-        返回:
-            Msg: 包含数据库总结报告的消息对象。
-        """
-        task = Msg(
-            name="user",
-            content=(
-                "Please provide a comprehensive summary and analysis of the entire database. "
-                "Your report should include:\n"
-                "1. An overview of all tables in the database.\n"
-                "2. Detailed summaries of each table, including structure and key statistics.\n"
-                "3. Relationships and connections between different tables.\n"
-                "4. In-depth analysis of the data, including patterns, trends, and insights.\n"
-                "5. An overall summary of the database, highlighting key findings and potential areas for further investigation.\n"
-                "Please use all available methods to gather information and perform your analysis. "
-                "Ensure your report is well-structured and provides clear, actionable insights."
-            ),
-            role="user"
-        )
-        
-        return self(task)
-
-    def get_table_header(self, table_name):
-        """
-        获取特定表格的列名。
-
-        参数:
-            table_name (str): 表格名称。
-
-        返回:
-            ServiceResponse: 包含表格列名的响应对象。
-        """
-        result = self.excel_processor.get_table_header(table_name)
-        return ServiceResponse(ServiceExecStatus.SUCCESS, result)
-
-    def get_all_table_headers(self):
-        """
-        获取数据库中所有表格的表头信息。
-
-        返回:
-            ServiceResponse: 包含所有表格表头信息的响应对象。
-        """
-        result = self.excel_processor.get_all_table_headers()
-        return ServiceResponse(ServiceExecStatus.SUCCESS, result)
-
-    def search_across_tables(self, key, value):
-        """
-        在所有表格中搜索特定的键值对。
-
-        参数:
-            key (str): 要搜索的键（列名）。
-            value (Any): 要搜索的值。
-
-        返回:
-            ServiceResponse: 包含搜索结果的响应对象。
-        """
-        result = self.excel_processor.search_across_tables(key, value)
-        return ServiceResponse(ServiceExecStatus.SUCCESS, result)
-
-    def execute_query(self, query, params=None):
-        """
-        执行自定义 SQL 查询。
-
-        参数:
-            query (str): SQL 查询字符串。
-            params (tuple, optional): 查询参数。
-
-        返回:
-            ServiceResponse: 包含查询结果的响应对象。
-        """
-        result = self.excel_processor.execute_query(query, params)
-        return ServiceResponse(ServiceExecStatus.SUCCESS, result)
-
-    def execute_python_code(self, code):
-        """
-        执行自定义 Python 代码进行数据分析。
-
-        参数:
-            code (str): 要执行的 Python 代码。
-
-        返回:
-            ServiceResponse: 包含代码执行结果的响应对象。
+        Returns:
+            ServiceResponse: A response object containing the execution status and result.
+                If successful, the content will be a dictionary where:
+                - Keys are table names (str)
+                - Values are dictionaries containing:
+                    - 'file_path' (str): The path of the source file
+                    - 'sheet_name' (Optional[str]): The name of the worksheet (None for CSV files)
+                    - 'columns' (List[str]): List of column names in the table
+                    - 'summary' (Optional[str]): A summary description of the table contents
+                    - 'record_count' (int): The total number of records in the table
         """
         try:
-            # 创建一个本地命名空间来执行代码
-            local_namespace = {}
+            result = self.excel_processor.get_all_table_headers()
+            return ServiceResponse(ServiceExecStatus.SUCCESS, result)
+        except Exception as e:
+            return ServiceResponse(ServiceExecStatus.ERROR, str(e))
+
+    def run_sql_query(self, query: str, params: Optional[Tuple] = None, *args, **kwargs) -> ServiceResponse:
+        """
+        Executes a custom SQL query on the database.
+
+        This function allows for the execution of arbitrary SQL queries, providing flexibility for complex
+        data analysis or operations that may not be achievable through other predefined methods.
+
+        Args:
+            query (str): The SQL query string to be executed.
+            params (Optional[Tuple]): A tuple of parameters for the query, used for parameterized queries. Defaults to None.
+
+        Returns:
+            ServiceResponse: A response object containing the execution status and result.
+                If successful, the content will be a list of tuples, where each tuple represents a row of the query result.
+
+        Note:
+            This function should be used judiciously, prioritizing predefined methods when possible.
+            Avoid overly complex SQL designs and ensure proper security measures are in place.
+        """
+        try:
+            result = self.excel_processor.execute_query(query, params)
+            return ServiceResponse(ServiceExecStatus.SUCCESS, result)
+        except Exception as e:
+            return ServiceResponse(ServiceExecStatus.ERROR, str(e))
+
+    def execute_python_code(self, code: str, *args, **kwargs) -> ServiceResponse:
+        """
+        Executes custom Python code for data analysis.
+
+        This function allows for the execution of arbitrary Python code, providing a flexible way to perform
+        complex data analysis by combining multiple operations and tool functions.
+
+        Args:
+            code (str): The Python code to be executed.
+
+        Returns:
+            ServiceResponse: A response object containing the execution status and result.
+                If successful, the content will be a string representation of the local variables
+                created during the code execution, excluding built-in variables and functions.
+                
+        Note:
+            - This function executes code in a restricted environment with access to predefined tool functions.
+            - It also provides access to math, numpy, and scipy.stats for advanced statistical analysis.
+            - Ensure proper input validation and security measures when using this function.
+        """
+        try:
+            local_namespace = {
+                'get_all_table_headers': self.get_all_table_headers,
+                'run_sql_query': self.run_sql_query,
+                'math': math,
+                'np': np,
+                'stats': stats
+            }
+            
             exec(code, globals(), local_namespace)
             
-            # 获取所有局部变量
-            result = {k: v for k, v in local_namespace.items() if not k.startswith('_')}
+            result = {k: v for k, v in local_namespace.items() if not k.startswith('_') and k not in globals()}
             return ServiceResponse(ServiceExecStatus.SUCCESS, str(result))
         except Exception as e:
             return ServiceResponse(ServiceExecStatus.ERROR, str(e))
 
-    def update_summary(self, file_path, sheet_name, summary):
-        """
-        更新特定表格的摘要信息。
-
-        参数:
-            file_path (str): 文件路径。
-            sheet_name (str): 工作表名称。
-            summary (str): 新的摘要信息。
-
-        返回:
-            ServiceResponse: 包含更新操作状态的响应对象。
-        """
-        try:
-            self.excel_processor.update_summary(file_path, sheet_name, summary)
-            return ServiceResponse(ServiceExecStatus.SUCCESS, "Summary updated successfully.")
-        except Exception as e:
-            return ServiceResponse(ServiceExecStatus.ERROR, str(e))
-
     def summarize_database(self):
-        """
-        生成整个数据库的全面总结报告。
-
-        这个方法会分析整个数据库，包括所有表格的结构、内容、关系，以及整体数据特征。
-        它会生成一个详细的报告，包括数据库总结、每个表格的摘要、表格之间的关系，以及深度数据分析。
-
-        返回:
-            str: 包含整个数据库分析结果的详细报告。
-        """
-        report = {
-            "database_summary": "",
-            "table_summaries": {},
-            "table_relations": [],
-            "data_analysis": {}
-        }
-
-        # 获取所有表格的表头信息
-        all_headers = self.get_all_table_headers().content
-
-        # 数据库总体摘要
-        total_tables = len(all_headers)
-        report["database_summary"] = f"The database contains {total_tables} tables."
-
-        # 分析每个表格
-        for table_name, table_info in all_headers.items():
-            table_summary = self.get_summary(table_info['file_path'], table_info['sheet_name']).content
-            columns = table_info['columns']
-            
-            # 执行基本的统计分析
-            stats_query = f"SELECT COUNT(*) as row_count FROM '{table_name}'"
-            row_count = self.execute_query(stats_query).content[0][0]
-            
-            report["table_summaries"][table_name] = {
-                "summary": table_summary,
-                "columns": columns,
-                "row_count": row_count
-            }
-
-            # 更新表格摘要
-            updated_summary = (f"{table_summary}\n"
-                               f"Table '{table_name}' has {len(columns)} columns and {row_count} rows.")
-            self.update_summary(table_info['file_path'], table_info['sheet_name'], updated_summary)
-
-        # 分析表格之间的关系
-        for table1 in all_headers:
-            for table2 in all_headers:
-                if table1 != table2:
-                    common_columns = set(all_headers[table1]['columns']) & set(all_headers[table2]['columns'])
-                    if common_columns:
-                        report["table_relations"].append(f"{table1} and {table2} share columns: {', '.join(common_columns)}")
-
-        # 深度数据分析
-        for table_name in all_headers:
-            # 示例：分析每个表格的数值列的基本统计信息
-            numeric_columns = [col for col in all_headers[table_name]['columns'] 
-                               if self.execute_query(f"SELECT typeof({col}) FROM '{table_name}' LIMIT 1").content[0][0] in ['integer', 'real']]
-            
-            if numeric_columns:
-                stats_query = f"SELECT {', '.join([f'AVG({col}) as {col}_avg, MAX({col}) as {col}_max, MIN({col}) as {col}_min' for col in numeric_columns])} FROM '{table_name}'"
-                stats_result = self.execute_query(stats_query).content
-                
-                report["data_analysis"][table_name] = {
-                    "numeric_columns": numeric_columns,
-                    "stats": {col: {"avg": stats_result[0][i*3], "max": stats_result[0][i*3+1], "min": stats_result[0][i*3+2]} 
-                              for i, col in enumerate(numeric_columns)}
-                }
-
-        # 格式化报告
-        formatted_report = "Database Analysis Report\n"
-        formatted_report += "=========================\n\n"
-        formatted_report += f"1. Database Summary:\n{report['database_summary']}\n\n"
+        self._clean_invalid_cache_files()
         
-        formatted_report += "2. Table Summaries:\n"
-        for table, summary in report["table_summaries"].items():
-            formatted_report += f"   - {table}:\n"
-            formatted_report += f"     Summary: {summary['summary']}\n"
-            formatted_report += f"     Columns: {', '.join(summary['columns'])}\n"
-            formatted_report += f"     Row Count: {summary['row_count']}\n\n"
+        cached_summary = self._load_summary_from_cache()
+        if cached_summary:
+            self.database_summary = cached_summary
+            return self.database_summary
         
-        formatted_report += "3. Table Relations:\n"
-        for relation in report["table_relations"]:
-            formatted_report += f"   - {relation}\n"
-        formatted_report += "\n"
-        
-        formatted_report += "4. Data Analysis:\n"
-        for table, analysis in report["data_analysis"].items():
-            formatted_report += f"   - {table}:\n"
-            formatted_report += f"     Numeric Columns: {', '.join(analysis['numeric_columns'])}\n"
-            for col, stats in analysis['stats'].items():
-                formatted_report += f"     {col}: Avg = {stats['avg']:.2f}, Max = {stats['max']}, Min = {stats['min']}\n"
-            formatted_report += "\n"
+        tb_headers = json.dumps(self.get_all_table_headers().content, indent=2, ensure_ascii=False)
+        print("------------------------------------------------Table Headers:")
+        print(tb_headers)
+        summary = ""
+        # 第一轮：数据库概览
+        task1 = Msg(
+            name="user",
+            content=(
+                "# 数据库概览"
+                f"- 使用 get_all_table_headers() 列出的基本信息为: \n{tb_headers}\n。"
+                "- 根据以上内容提供数据库的整体概览并简要描述数据库的整体结构和主要内容。\n"
+                "- 使用 Markdown 语法格式化你的输出"
+            ),
+            role="user"
+        )
+        response1 = super().__call__(task1)
+        summary += response1.content + "\n\n"
 
-        return formatted_report
+        # 第二轮：表格分析
+        task2 = Msg(
+            name="user",
+            content=(
+                "# 表格与数据分析"
+                "- 基于之前的概览,进行更深入的数据分析，重点关注整个数据库的主要趋势和模式：\n"
+                "1. 表内数据项之间的关系和模式\n"
+                "2. 表与表之间的关联和联系\n"
+                "3. 跨表数据模式和趋势\n"
+                "- Markdown 语法格式化你的输出"
+            ),
+            role="user"
+        )
+        response2 = super().__call__(task2)
+        summary += response2.content + "\n\n"
+
+        self.database_summary = summary
+        self._save_summary_to_cache(self.database_summary)
+        return self.database_summary
 
     def __call__(self, msg):
         """
@@ -312,6 +277,8 @@ class TableAnalyst(ReActAgent):
         返回:
             Msg: 包含分析结果的消息对象。
         """
+        if self.database_summary is None:
+            self.summarize_database()
         return super().__call__(msg)
 
 # 使用示例

@@ -151,4 +151,6 @@ model_configs.json
 # dataset
 dataset/
 .vscode/
-src/data.db
+*.db
+src/project_data.db.summary_b8eaf12657d60b4674f0b2b6c01670fa.md
+old.py

@@ -15,41 +15,29 @@ class DataArchitect:
     def __init__(self):
         self.agent = DictDialogAgent(
             name="DataArchitect",
-            sys_prompt=("You are a Data Architect specializing in reviewing the outputs of Table Designers "
-                        "and Label Designers for medical data projects. Your task is to review the table headers "
-                        "and extraction labels created by the TableDesigner and LabelDesigner, and optimize them "
-                        "by removing non-essential or redundant items.\n\n"
-                        "# Responsibilities\n\n"
-                        "1. Analyze Project Definition: Understand the project's objectives, scope, and key indicators "
-                        "to effectively review the table headers and labels.\n"
-                        "2. Review Table Headers: Evaluate the table headers designed by the TableDesigner, identifying "
-                        "and removing any non-essential or redundant headers.\n"
-                        "3. Review Labels: Evaluate the extraction labels designed by the LabelDesigner, identifying "
-                        "and removing any non-essential or redundant labels.\n\n"
-                        "# Process\n"
-                        "1. Review Project Definition: Analyze the project definition to understand the specific needs "
-                        "for data analysis and annotation.\n"
-                        "2. Evaluate Table Headers: Review the list of table headers created by the TableDesigner, "
-                        "identifying any that are non-essential or redundant, and compile a list of headers to be removed.\n"
-                        "3. Evaluate Labels: Review the list of labels created by the LabelDesigner, identifying any "
-                        "that are non-essential or redundant, and compile a list of labels to be removed.\n\n"
-                        "# Deletion Rules\n"
-                        "1. Remove non-essential table headers or labels that do not contribute to the project's objectives.\n"
-                        "2. If there are two labels with overlapping scopes, remove the one with the narrower scope.\n"
-                        "3. If you find the table headers and labels to be well-designed and necessary, you may choose "
-                        "not to remove any content.\n\n"
-                        "Your goal is to ensure the final set of table headers and labels is as robust and efficient as possible. "
-                        "Your output should be a list of table headers to be removed and a list of labels to be removed, if any."),
+            sys_prompt=(
+                "You are a Data Architect reviewing and optimizing table headers and annotation labels for medical data projects. "
+                "Your task is to remove non-essential or redundant items while ensuring all project requirements are met.\n\n"
+                "Key Responsibilities:\n"
+                "1. Analyze project definition, user requirements, and analyst insights.\n"
+                "2. Review and optimize table headers and extraction labels.\n"
+                "3. Ensure final design aligns with project goals and user needs.\n\n"
+                "Review Process:\n"
+                "1. Evaluate necessity and relevance of each table header and label.\n"
+                "2. Identify items for removal.\n"
+                "3. Justify your decisions briefly.\n\n"
+                "Deletion Rules:\n"
+                "1. Always retain at least one unique identifier in table headers.\n"
+                "2. Remove headers and labels not contributing to project objectives.\n"
+                "3. If multiple labels have overlapping scopes, keep the more specific ones and remove broader labels.\n"
+                "4. Consider removing broad labels if numerous more specific labels exist and meet project requirements.\n"
+                "5. If all items are necessary, you may choose not to remove any.\n\n"
+                "Your output should be concise, clear, and directly address the optimization of the data structure."
+            ),
             model_config_name="claude3",
             use_memory=True
         )
 
-        """
-        数据架构解析器
-        - del_table_names: 要删除的表格名称列表
-        - del_label_names: 要删除的医疗实体注释标签名称列表
-        - reason: 决策的简要解释
-        """
         self.parser = MarkdownYAMLDictParser(
             content_hint={
                 "del_table_names": "A list of table names to be deleted.",
@@ -61,21 +49,22 @@ class DataArchitect:
         )
         self.agent.set_parser(self.parser)
 
-    def data_arch_task(self, project_definition, headers, tags):
-        """
-        数据架构任务提示词
-        - {project_definition}: 项目定义
-        - {headers}: 表格标题
-        - {tags}: 医疗实体注释标签
-        """
+    def data_arch_task(self, project_definition, user_requirements, analyst_insights, headers, tags):
         prompt = (
-            "# Project Definition\n"
-            "```\n{project_definition}\n```\n\n"
-            "# Table Headers\n"
-            "```\n{headers}\n```\n\n"
-            "# Medical Entity Annotation labels\n"
-            "```\n{tags}\n```\n"
-        ).format(project_definition=project_definition, headers=headers, tags=tags)
+            "Review and optimize the following table headers and annotation labels based on the project information:\n\n"
+            "Project Definition:\n```\n{project_definition}\n```\n\n"
+            "User Requirements:\n```\n{user_requirements}\n```\n\n"
+            "Analyst Insights:\n```\n{analyst_insights}\n```\n\n"
+            "Table Headers:\n```\n{headers}\n```\n\n"
+            "Annotation Labels:\n```\n{tags}\n```\n\n"
+            "Instructions:\n"
+            "1. Identify non-essential or redundant table headers and labels for removal.\n"
+            "2. Ensure at least one unique identifier is retained in table headers.\n"
+            "3. Consider removing broad labels if specific labels sufficiently cover the requirements.\n"
+            "4. Provide brief justifications for your decisions.\n"
+            "5. If all items are necessary, state that no changes are needed."
+        ).format(project_definition=project_definition, user_requirements=user_requirements, 
+                 analyst_insights=analyst_insights, headers=headers, tags=tags)
         hint = self.HostMsg(content=prompt)
         return self.agent(hint)
 
