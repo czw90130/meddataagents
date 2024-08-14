@@ -8,7 +8,7 @@ from functools import partial
 from agentscope.message import Msg
 from agentscope.agents.user_agent import UserAgent
 
-from bedrock_model_wrapper import BedrockModelWrapper
+from goodrock_model_wrapper import GoodRockModelWrapper
 
 from agents.excel_processor import ExcelChunkProcessor
 

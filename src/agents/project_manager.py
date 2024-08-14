@@ -32,7 +32,7 @@ class ProjectManager:
                 "Remember to set continue_ask to True if more information is needed from the customer, otherwise False.\n"
                 "Provide clear, concise responses that align with the parser's expected structure.\n"
             ),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
         

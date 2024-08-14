@@ -23,7 +23,7 @@ class ProjectMaster:
                         "2. Only accept changes that are absolutely necessary and significantly valuable\n"
                         "3. Maintain the original project scope and customer requirements\n"
                         "4. Provide a brief rationale for your decision"),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

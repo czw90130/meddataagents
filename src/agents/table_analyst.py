@@ -43,7 +43,7 @@ class TableAnalyst(ReActAgent):
         
         super().__init__(
             name=TableAnalyst,
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             service_toolkit=service_toolkit,
             sys_prompt=self._generate_sys_prompt(),
             verbose=True

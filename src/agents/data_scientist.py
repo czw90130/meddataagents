@@ -22,7 +22,7 @@ class DataScientist:
                         "2. Do NOT add or remove any customer requirements\n"
                         "3. Offer suggestions only when necessary, respecting the original scope\n"
                         "4. Provide clear, concise feedback with justifications"),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

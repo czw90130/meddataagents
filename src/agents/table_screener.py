@@ -71,7 +71,7 @@ class TableScreener:
                 "}\n"
                 "```\n"
             ),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=False
         )
 

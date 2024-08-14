@@ -31,7 +31,7 @@ class LabelDesigner:
                         "# Requirements\n"
                         "- Labels must encompass the content of the table headers but be generalized enough to avoid being overly specific, preventing missed annotations.\n"
                         "- If a new label can be encompassed or covered by an existing label in the Current Medical Entity Annotation, do not create the new label."),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

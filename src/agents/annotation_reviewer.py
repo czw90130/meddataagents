@@ -43,7 +43,7 @@ class AnnotationReviewer:
                         "{\"errors\":\"/* 1. The err info and your fix suggestions.*/\n/*2. ... ... */\n\","
                         "\"suggestions\":\"/* 1. Your suggestions for optimization of the annotated information. "
                         "The suggestions must be important and significantly improve the quality of the annotations.*/\n/*2. ... ... */\n\"}"),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

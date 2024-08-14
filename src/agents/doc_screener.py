@@ -53,7 +53,7 @@ class DocScreener:
                 "files should typically be classified as COL_HEADER_TABLE or ROW_HEADER_TABLE unless the content "
                 "clearly indicates otherwise.\n\n"
             ),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=False
         )
 
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     from pathlib import Path
     import agentscope
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from bedrock_model_wrapper import BedrockModelWrapper
+    from goodrock_model_wrapper import GoodRockModelWrapper
     
     agentscope.init(
         model_configs="../configs/model_configs.json"

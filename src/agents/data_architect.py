@@ -34,7 +34,7 @@ class DataArchitect:
                 "5. If all items are necessary, you may choose not to remove any.\n\n"
                 "Your output should be concise, clear, and directly address the optimization of the data structure."
             ),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

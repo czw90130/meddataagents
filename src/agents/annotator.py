@@ -30,7 +30,7 @@ class Annotator:
                         "```\n"
                         "Additionally, ensure that the annotated content, excluding the tags themselves, matches the original text exactly. "
                         "This includes all characters, numbers, and punctuation marks, and any spelling errors must be preserved as they are in the original text."),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

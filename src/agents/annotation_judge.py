@@ -25,7 +25,7 @@ class AnnotationJudge:
                         "3. If the existing annotations are already accurate and complete enough, you should consider making a decision of False.\n\n"
                         "Your goal is to ensure that any changes to the annotations are necessary and add significant value.\n\n"
                         "Based on the reference and the Reviewer's feedback, you need to make a decision and provide a brief reason."),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 

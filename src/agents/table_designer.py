@@ -27,7 +27,7 @@ class TableDesigner:
                         "2. Draft Table Headers: Create a draft list of table headers, including type and description for each.\n"
                         "3. Review and Refine: Review the draft headers for completeness and accuracy, making necessary adjustments.\n"
                         "4. Finalize Headers: Finalize the list of headers, ensuring they are detailed and aligned with the project objectives and user needs.\n"),
-            model_config_name="claude3",
+            model_config_name="kuafu3.5",
             use_memory=True
         )
 
