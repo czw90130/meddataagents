@@ -15,24 +15,24 @@ class TableDesigner:
             sys_prompt=("You are a Table Designer specializing in defining statistical table headers "
                         "and data types for medical data projects. Your task is to create comprehensive "
                         "and detailed table headers based on the project definition, user requirements, "
-                        "and analyst insights, ensuring each header is well-defined and aligned with the project's needs.\n\n"
-                        "# Responsibilities\n\n"
-                        "1. Analyze Project Definition and User Requirements: Understand the project's objectives, scope, and key indicators.\n"
-                        "2. Interpret Analyst Insights: Use the insights provided by the data analyst to inform your design decisions.\n"
-                        "3. Define Table Headers: Create detailed and descriptive headers for the statistical table, including data types and descriptions.\n"
-                        "4. Ensure Completeness: Ensure that all necessary headers are included to cover the project's requirements comprehensively.\n"
-                        "5. Validate Headers: Confirm that each header is relevant, clear, and correctly typed.\n\n"
-                        "# Process\n"
-                        "1. Review Inputs: Analyze the project definition, user requirements, and analyst insights.\n"
-                        "2. Draft Table Headers: Create a draft list of table headers, including type and description for each.\n"
-                        "3. Review and Refine: Review the draft headers for completeness and accuracy, making necessary adjustments.\n"
-                        "4. Finalize Headers: Finalize the list of headers, ensuring they are detailed and aligned with the project objectives and user needs.\n"),
+                        "and analyst insights, ensuring each header is well-defined and aligned with the project's needs.\n\n"),
             model_config_name="kuafu3.5",
             use_memory=True
         )
 
         self.parser = MarkdownYAMLDictParser(
             content_hint=(
+                "# Responsibilities\n\n"
+                "1. Analyze Project Definition and User Requirements: Understand the project's objectives, scope, and key indicators.\n"
+                "2. Interpret Analyst Insights: Use the insights provided by the data analyst to inform your design decisions.\n"
+                "3. Define Table Headers: Create detailed and descriptive headers for the statistical table, including data types and descriptions.\n"
+                "4. Ensure Completeness: Ensure that all necessary headers are included to cover the project's requirements comprehensively.\n"
+                "5. Validate Headers: Confirm that each header is relevant, clear, and correctly typed.\n\n"
+                "# Process\n"
+                "1. Review Inputs: Analyze the project definition, user requirements, and analyst insights.\n"
+                "2. Draft Table Headers: Create a draft list of table headers, including type and description for each.\n"
+                "3. Review and Refine: Review the draft headers for completeness and accuracy, making necessary adjustments.\n"
+                "4. Finalize Headers: Finalize the list of headers, ensuring they are detailed and aligned with the project objectives and user needs.\n"
                 "The table headers should be defined in YAML format as follows:\n"
                 "```yaml\n"
                 "header_name1:\n"

@@ -88,7 +88,7 @@ class AgentGroups:
             # 使用DocScreener分析文件    
             doc_result = doc_screener(file_path)
             
-            if doc_result.metadata['doc_type'] in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+            if doc_result.metadata['doc_type'] in ['TABLE', 'UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
                 table_screener(file_path, doc_result.metadata['md_file_path'], doc_result)
             else:
                 print(f"File is not a table type: {file_path}")

@@ -21,55 +21,6 @@ class TableScreener:
             sys_prompt=(
                 "You are a Table Screener specialized in analyzing table structures and evaluating their suitability for SQL import. "
                 "Your task is to review table content, assess its suitability for SQL import, and identify table headers.\n\n"
-                "# Responsibilities\n\n"
-                "1. Analyze Table Content: Review the table content provided.\n"
-                "2. Assess SQL Import Suitability: Evaluate whether the table can be imported into SQL and provide appropriate recommendations.\n"
-                "3. Identify Table Headers: Provide a JSON schema describing the table headers.\n\n"
-                "# SQL Import Suitability\n"
-                "- NO: Cannot be imported into SQL\n"
-                "- TRANS: Can be imported after specific transformations (describe in detail)\n"
-                "- YES: Can be directly imported using process_file function\n\n"
-                "# Important Notes\n"
-                "1. For Excel files converted to markdown, pay attention to subtable headers marked with '#'. "
-                "Each subtable should be evaluated separately for SQL import suitability.\n\n"
-                "2. When evaluating SQL import suitability, consider the following:\n"
-                "   - If all subtables can be directly imported, use 'YES'.\n"
-                "   - If some subtables require transformation, use 'TRANS'.\n"
-                "   - If any subtable cannot be imported, use 'NO'.\n"
-                "   Provide detailed reasoning for each subtable in the 'reasoning' field using a dictionary format.\n\n"
-                "3. For table structures, carefully examine if line breaks within cells are represented as '\\n'. "
-                "This does not necessarily indicate a broken table structure and may still be suitable for direct SQL import.\n\n"
-                "4. Provide a JSON schema for the table headers, including data types and descriptions for each column.\n\n"
-                "5. For columns that represent categories or types  , use the 'enum' type in the JSON schema "
-                "and list the possible values observed in the data.\n\n"
-                "# Header JSON Format\n"
-                "The JSON object with the table headers should be defined as follows:\n"
-                "```\n"
-                "{\"header_name\":{\"type\":\"string|long-text|number|boolean|date|enum\",\"description\":\"Brief description of the header.\"}}\n"
-                "```\n"
-                "For enum types, include the possible values within the \"type\" field. Ensure that the options are as comprehensive as possible to fully describe the field. "
-                "To enhance data structuring, minimize the use of `string` type and prefer using `boolean` or `enum` types where applicable.\n\n"
-                "# Long-text Type\n"
-                "When identifying header types, use 'long-text' for fields that typically contain:\n"
-                "- More than two sentences of text\n"
-                "- Text with line breaks or paragraphs\n"
-                "- Detailed descriptions, comments, or narratives\n"
-                "- Content that exceeds 64 characters\n"
-                "This distinction is important for proper SQL schema design and efficient data storage.\n\n"
-                "This example is for reference only:\n"
-                "```\n"
-                "{\n"
-                "  \"patient_id\": {\"type\": \"string\", \"description\": \"Unique identifier.\"},\n"
-                "  \"hospital\": {\"type\": \"string\", \"description\": \"Hospital name.\"},\n"
-                "  \"age\": {\"type\": \"number\", \"description\": \"Age in years.\"},\n"
-                "  \"gender\": {\"type\": {\"enum\": [\"male\", \"female\", \"other\"]}, \"description\": \"Gender\"},\n"
-                "  \"date_of_birth\": {\"type\": \"date\", \"description\": \"Patient's date of birth.\"},\n"
-                "  \"asa_status_pre_op\": {\"type\": {\"enum\": [1, 2, 3, 4, 5]}, \"description\": \"Pre-operative ASA score: 1-Healthy, 2-Mild disease, 3-Severe disease, 4-Life-threatening, 5-Moribund.\"},\n"
-                "  \"angina_within_30_days_pre_op\": {\"type\": \"boolean\", \"description\": \"Angina within 30 days prior to surgery.\"},\n"
-                "  \"pulse_rate_pre_op\": {\"type\": \"number\", \"description\": \"Pre-op pulse rate per minute.\"},\n"
-                "  \"medical_history\": {\"type\": \"long-text\", \"description\": \"Detailed medical history of the patient, including past surgeries, chronic conditions, and allergies.\"}\n"
-                "}\n"
-                "```\n"
             ),
             model_config_name="kuafu3.5",
             use_memory=False
@@ -79,7 +30,7 @@ class TableScreener:
             content_hint={
                 "sql_import": "Assessment of suitability for SQL import (NO, TRANS, or YES). Consider that long text with line breaks ('\\n') in cells does not indicate a broken table structure.",
                 "reasoning": "Explanation for the SQL import suitability choices, including consideration of subtables if present.",
-                "headers": "JSON schema describing the table headers, including data types and descriptions. Use 'enum' type for fields with a limited set of recurring values."
+                "headers": "YAML schema describing the table headers, including data types and descriptions. Use 'enum' type for fields with a limited set of recurring values."
             },
             keys_to_content="reasoning",
             keys_to_metadata=True
@@ -166,6 +117,40 @@ class TableScreener:
         prepared_content = self.prepare_content(table_content, table_name)
         
         prompt = (
+            "# Task Overview\n"
+            "1. Analyze table content\n"
+            "2. Assess SQL import suitability\n"
+            "3. Identify table headers and create JSON schema\n\n"
+            "# SQL Import Suitability\n"
+            "- NO: Cannot be imported\n"
+            "- TRANS: Requires specific transformations (provide details)\n"
+            "- YES: Can be directly imported\n\n"
+            "# Key Points\n"
+            "1. Evaluate subtables (marked with '#') separately\n"
+            "2. Consider overall suitability: YES (all direct), TRANS (some need transformation), NO (any cannot be imported)\n"
+            "3. Line breaks (\\n) in cells don't necessarily indicate broken structure\n"
+            "4. Provide detailed reasoning for each subtable\n"
+            "5. Create comprehensive JSON schema for headers\n\n"
+            "# JSON Schema Guidelines\n"
+            "- Format: {\"header_name\":{\"type\":\"data_type\",\"description\":\"Brief description\"}}\n"
+            "- Data types: string, long-text, number, boolean, date, enum\n"
+            "- Use 'enum' for categories, listing all observed values\n"
+            "- Prefer 'boolean' or 'enum' over 'string' when applicable\n"
+            "- Use 'long-text' for: >2 sentences, text with line breaks, detailed descriptions, >64 characters\n\n"
+            "# Example JSON Schema\n"
+            "```\n"
+            "{\n"
+            "  \"patient_id\": {\"type\": \"string\", \"description\": \"Unique identifier.\"},\n"
+            "  \"hospital\": {\"type\": \"string\", \"description\": \"Hospital name.\"},\n"
+            "  \"age\": {\"type\": \"number\", \"description\": \"Age in years.\"},\n"
+            "  \"gender\": {\"type\": {\"enum\": [\"male\", \"female\", \"other\"]}, \"description\": \"Gender\"},\n"
+            "  \"date_of_birth\": {\"type\": \"date\", \"description\": \"Patient's date of birth.\"},\n"
+            "  \"asa_status_pre_op\": {\"type\": {\"enum\": [1, 2, 3, 4, 5]}, \"description\": \"Pre-operative ASA score.\"},\n"
+            "  \"angina_within_30_days_pre_op\": {\"type\": \"boolean\", \"description\": \"Angina within 30 days pre-op.\"},\n"
+            "  \"pulse_rate_pre_op\": {\"type\": \"number\", \"description\": \"Pre-op pulse rate per minute.\"},\n"
+            "  \"medical_history\": {\"type\": \"long-text\", \"description\": \"Detailed medical history.\"}\n"
+            "}\n"
+            "```\n"
             "# Table Content\n"
             f"{prepared_content}\n\n"
         )
@@ -178,14 +163,6 @@ class TableScreener:
             prompt += f"# Document Structure\n{doc_structure}\n\n"
         if doc_reasoning:
             prompt += f"# Document Reasoning\n{doc_reasoning}\n\n"
-
-        prompt += (
-            "Please analyze the above table content and provide the following information:\n"
-            "1. An assessment of its suitability for SQL import.\n"
-            "2. Detailed reasoning for your choices.\n"
-            "3. A JSON schema describing the table headers, including data types and descriptions.\n"
-            "Ensure your response follows the specified format for easy parsing."
-        )
 
         if table_name is not None:
             prompt = f"# Table Name: {table_name}\n\n" + prompt
@@ -256,7 +233,7 @@ class TableScreener:
         """
         # 检查文件类型是否适合处理
         doc_type = doc_screener_result.metadata.get('doc_type')
-        if doc_type not in ['UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
+        if doc_type not in ['TABLE', 'UNFORMATTED_TABLE', 'ROW_HEADER_TABLE', 'COL_HEADER_TABLE', 'RAW_DATA_LIST']:
             print(f"File is not a table type: {input_file_path}")
             return doc_screener_result
         
