@@ -158,18 +158,39 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         )
 
         self.required_keys = required_keys or []
+        
+    def _dict_to_yaml_with_multiline(self, d):
+        """将字典转换为YAML字符串，对长字符串使用'|'语法"""
+        def represent_str_with_style(dumper, data):
+            if '\n' in data:
+                return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+        yaml.add_representer(str, represent_str_with_style)
+        return yaml.dump(d, default_flow_style=False)
 
     @property
     def format_instruction(self) -> str:
-        """获取YAML对象的格式指令，如果提供了format_example，将用作示例。"""
+        """获取YAML对象的格式指令，转换content_hint为YAML格式"""
+        yaml_content_hint = self.content_hint
+
+        if isinstance(self.content_hint, dict):
+            yaml_content_hint = self._dict_to_yaml_with_multiline(self.content_hint)
+
         if self.pydantic_class is None:
             return self._format_instruction.format(
-                content_hint=self.content_hint,
+                content_hint=yaml_content_hint,
             )
         else:
+            # 获取JSON schema
+            json_schema = self.pydantic_class.model_json_schema()
+            
+            # 将JSON schema转换为YAML格式，使用自定义方法处理多行字符串
+            yaml_schema = self._dict_to_yaml_with_multiline(json_schema)
+            
             return self._format_instruction_with_schema.format(
-                content_hint=self.content_hint,
-                schema=self.pydantic_class.model_json_schema(),
+                content_hint=yaml_content_hint,
+                schema=yaml_schema,
             )
 
     def parse(self, response: ModelResponse) -> ModelResponse:
@@ -187,23 +208,21 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         except TagNotFoundError as e:
             # 尝试通过添加标签来修复缺失的标签错误
             try:
-                response_copy = deepcopy(response)
+                # 创建一个新的字符串，而不是修改 response.text
+                modified_text = response.text
 
                 # 修复缺失的标签
                 if e.missing_begin_tag:
-                    response_copy.text = self.tag_begin + response_copy.text
+                    modified_text = self.tag_begin + modified_text
                 if e.missing_end_tag:
-                    response_copy.text = response_copy.text + self.tag_end
+                    modified_text = modified_text + self.tag_end
 
                 # 再次尝试提取内容
                 extract_text = self._extract_first_content_by_tag(
-                    response_copy,
+                    ModelResponse(text=modified_text),  # 创建一个新的 ModelResponse 对象
                     self.tag_begin,
                     self.tag_end,
                 )
-
-                # 用修复后的响应替换原响应
-                response.text = response_copy.text
 
                 logger.debug("通过手动添加XML标签修复了缺失的标签。")
 

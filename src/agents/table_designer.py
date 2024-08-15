@@ -72,7 +72,9 @@ class TableDesigner:
             "{prev_headers}\n"
             "</existing_headers>\n"
             "<instructions>\n"
-            "Based on the above information, please design comprehensive and detailed table headers for this medical data project.\n"
+            "Based on the above information, please design comprehensive and detailed table headers for this medical data project. "
+            "It is crucial that you DO NOT duplicate any of the existing headers listed above. "
+            "Your task is to create new, complementary headers that enhance the project's data structure without redundancy.\n"
             "</instructions>"
         ).format(project_definition=project_definition, user_requirements=user_requirements, 
                  analyst_insights=analyst_insights, prev_headers=prev_headers)

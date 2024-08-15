@@ -28,8 +28,8 @@ class TableScreener:
 
         self.parser = MarkdownYAMLDictParser(
             content_hint={
-                "sql_import": "Assessment of suitability for SQL import (NO, TRANS, or YES). Consider that long text with line breaks ('\\n') in cells does not indicate a broken table structure.",
-                "reasoning": "Explanation for the SQL import suitability choices, including consideration of subtables if present.",
+                "sql_import": "Enum. Assessment of suitability for SQL import (NO, TRANS, or YES). Consider that long text with line breaks ('\\n') in cells does not indicate a broken table structure.",
+                "reasoning": "String. Explanation for the SQL import suitability choices, including consideration of subtables if present.",
                 "headers": "YAML schema describing the table headers, including data types and descriptions. Use 'enum' type for fields with a limited set of recurring values."
             },
             keys_to_content="reasoning",

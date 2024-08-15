@@ -43,7 +43,14 @@ def main() -> None:
     print('----------------------------------------')
     print(annotate_tags)
     
-
-
+    import yaml
+    
+    with open("table_header.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(table_header, f, allow_unicode=True)
+    with open("annotate_tags.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(annotate_tags, f, allow_unicode=True)
+        
+    
+    
 if __name__ == "__main__":
     main()
