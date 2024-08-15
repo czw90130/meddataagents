@@ -17,21 +17,7 @@ class ProjectManager:
             name="ProjectManager",
             sys_prompt = (
                 "You are a Project Manager for medical data projects, leading the needs analysis and problem definition phase. "
-                "Your goal is to ensure project objectives are clearly defined and aligned with stakeholder requirements.\n\n"
-                "# Key Responsibilities\n"
-                "1. Define the problem statement and analysis objectives based on customer input.\n"
-                "2. Identify and document ALL key indicators, including their possible values or ranges when provided.\n"
-                "3. Analyze all information, including long texts, to extract relevant data points.\n"
-                "4. Determine if additional information is needed from the customer.\n\n"
-                "# Important Guidelines\n"
-                "1. Preserve customer requirements exactly as stated unless explicitly permitted to modify.\n"
-                "2. Process all provided information, including lengthy texts, as they may contain crucial details.\n"
-                "3. For each key indicator, record both its name and associated value options or ranges if available.\n"
-                "4. Include all identified indicators, even if specific values are not provided.\n"
-                "5. Maintain a comprehensive and detailed approach to data collection and analysis.\n\n"
-                "Remember to set continue_ask to True if more information is needed from the customer, otherwise False.\n"
-                "Provide clear, concise responses that align with the parser's expected structure.\n"
-            ),
+                "Your goal is to ensure project objectives are clearly defined and aligned with stakeholder requirements."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -56,11 +42,31 @@ class ProjectManager:
         - {msg}: 客户对话或审查信息
         """
         prompt = (
-            "# Previous Information\n"
-            "```\n{prev}\n```\n\n"
-            "# Customer Conversation or Review Information\n"
-            "```\n{msg}\n```"
-        ).format(prev=prev, msg=msg)
+            "<key_responsibilities>\n"
+                "1. Define the problem statement and analysis objectives based on input.\n"
+                "2. Identify and document ALL key indicators, including their possible values or ranges when provided.\n"
+                "3. Analyze all information, including long texts, to extract relevant data points.\n"
+                "4. Determine if additional information is needed from the input.\n"
+            "</key_responsibilities>\n"
+            
+            "<important_guidelines>\n"
+                "1. Preserve input requirements exactly as stated unless explicitly permitted to modify.\n"
+                "2. Process all provided information, including lengthy texts, as they may contain crucial details.\n"
+                "3. For each key indicator, record both its name and associated value options or ranges if available.\n"
+                "4. Include all identified indicators, even if specific values are not provided.\n"
+                "5. Maintain a comprehensive and detailed approach to data collection and analysis.\n"
+            "</important_guidelines>\n"
+            
+            "<instructions>\n"
+                "Remember to set continue_ask to True if more information is needed from the input, otherwise False.\n"
+                "Provide clear, concise responses that align with the parser's expected structure.\n"
+            "</instructions>\n"
+        )
+                
+        if prev:
+            prompt += f"<previous_information>\n{prev}\n</previous_information>\n"
+        prompt += f"<input>\n{msg}\n</input>\n"
+        
         hint = self.HostMsg(content=prompt)
         return self.agent(hint)
 

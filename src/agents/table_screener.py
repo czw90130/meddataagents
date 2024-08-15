@@ -116,58 +116,88 @@ class TableScreener:
         
         prepared_content = self.prepare_content(table_content, table_name)
         
-        prompt = (
-            "# Task Overview\n"
-            "1. Analyze table content\n"
-            "2. Assess SQL import suitability\n"
-            "3. Identify table headers and create JSON schema\n\n"
-            "# SQL Import Suitability\n"
-            "- NO: Cannot be imported\n"
-            "- TRANS: Requires specific transformations (provide details)\n"
-            "- YES: Can be directly imported\n\n"
-            "# Key Points\n"
-            "1. Evaluate subtables (marked with '#') separately\n"
-            "2. Consider overall suitability: YES (all direct), TRANS (some need transformation), NO (any cannot be imported)\n"
-            "3. Line breaks (\\n) in cells don't necessarily indicate broken structure\n"
-            "4. Provide detailed reasoning for each subtable\n"
-            "5. Create comprehensive JSON schema for headers\n\n"
-            "# JSON Schema Guidelines\n"
-            "- Format: {\"header_name\":{\"type\":\"data_type\",\"description\":\"Brief description\"}}\n"
-            "- Data types: string, long-text, number, boolean, date, enum\n"
-            "- Use 'enum' for categories, listing all observed values\n"
-            "- Prefer 'boolean' or 'enum' over 'string' when applicable\n"
-            "- Use 'long-text' for: >2 sentences, text with line breaks, detailed descriptions, >64 characters\n\n"
-            "# Example JSON Schema\n"
-            "```\n"
-            "{\n"
-            "  \"patient_id\": {\"type\": \"string\", \"description\": \"Unique identifier.\"},\n"
-            "  \"hospital\": {\"type\": \"string\", \"description\": \"Hospital name.\"},\n"
-            "  \"age\": {\"type\": \"number\", \"description\": \"Age in years.\"},\n"
-            "  \"gender\": {\"type\": {\"enum\": [\"male\", \"female\", \"other\"]}, \"description\": \"Gender\"},\n"
-            "  \"date_of_birth\": {\"type\": \"date\", \"description\": \"Patient's date of birth.\"},\n"
-            "  \"asa_status_pre_op\": {\"type\": {\"enum\": [1, 2, 3, 4, 5]}, \"description\": \"Pre-operative ASA score.\"},\n"
-            "  \"angina_within_30_days_pre_op\": {\"type\": \"boolean\", \"description\": \"Angina within 30 days pre-op.\"},\n"
-            "  \"pulse_rate_pre_op\": {\"type\": \"number\", \"description\": \"Pre-op pulse rate per minute.\"},\n"
-            "  \"medical_history\": {\"type\": \"long-text\", \"description\": \"Detailed medical history.\"}\n"
-            "}\n"
-            "```\n"
-            "# Table Content\n"
-            f"{prepared_content}\n\n"
-        )
+        prompt = f"""
+<task_overview>
+1. Analyze table content
+2. Assess SQL import suitability
+3. Identify table headers and create YAML schema
+</task_overview>
 
+<sql_import_suitability>
+- NO: Cannot be imported
+- TRANS: Requires specific transformations (provide details)
+- YES: Can be directly imported
+</sql_import_suitability>
+
+<key_points>
+1. Evaluate subtables (marked with '#') separately
+2. Consider overall suitability: YES (all direct), TRANS (some need transformation), NO (any cannot be imported)
+3. Line breaks (\\n) in cells don't necessarily indicate broken structure
+4. Provide detailed reasoning for each subtable
+5. Create comprehensive YAML schema for headers
+</key_points>
+
+<yaml_schema_guidelines>
+- Format: 
+  header_name:
+    type: data_type
+    description: Brief description
+- Data types: string, long-text, number, boolean, date, enum
+- Use 'enum' for categories, listing all observed values
+- Prefer 'boolean' or 'enum' over 'string' when applicable
+- Use 'long-text' for: >2 sentences, text with line breaks, detailed descriptions, >64 characters
+</yaml_schema_guidelines>
+
+<example_yaml_schema>
+patient_id:
+  type: string
+  description: Unique identifier.
+hospital:
+  type: string
+  description: Hospital name.
+age:
+  type: number
+  description: Age in years.
+gender:
+  type:
+    enum: [male, female, other]
+  description: Gender
+date_of_birth:
+  type: date
+  description: Patient's date of birth.
+asa_status_pre_op:
+  type:
+    enum: [1, 2, 3, 4, 5]
+  description: Pre-operative ASA score.
+angina_within_30_days_pre_op:
+  type: boolean
+  description: Angina within 30 days pre-op.
+pulse_rate_pre_op:
+  type: number
+  description: Pre-op pulse rate per minute.
+medical_history:
+  type: long-text
+  description: Detailed medical history.
+</example_yaml_schema>
+
+<table_content>
+{prepared_content}
+</table_content>
+"""
+        suffix_prompt = "<previous_document_analysis>\n"
         if doc_summary:
-            prompt += f"# Document Summary\n{doc_summary}\n\n"
+            suffix_prompt += f"<document_summary>\n{doc_summary}\n</document_summary>\n"
         if doc_type:
-            prompt += f"# Document Type\n{doc_type}\n\n"
+            suffix_prompt += f"<document_type>{doc_type}</document_type>\n"
         if doc_structure:
-            prompt += f"# Document Structure\n{doc_structure}\n\n"
+            suffix_prompt += f"<document_structure>\n{doc_structure}\n</document_structure>\n"
         if doc_reasoning:
-            prompt += f"# Document Reasoning\n{doc_reasoning}\n\n"
+            suffix_prompt += f"<document_reasoning>\n{doc_reasoning}\n</document_reasoning>\n"
 
         if table_name is not None:
-            prompt = f"# Table Name: {table_name}\n\n" + prompt
+            suffix_prompt = f"<table_name>{table_name}</table_name>\n" + suffix_prompt
 
-        hint = self.HostMsg(content=prompt)
+        hint = self.HostMsg(content=prompt+suffix_prompt+"\n</previous_document_analysis>")
         analyze_result = self.agent(hint)
         
         summary = self._generate_summary(doc_screener_result, analyze_result, table_name)

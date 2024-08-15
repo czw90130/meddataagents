@@ -26,33 +26,67 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
     name: str = "yaml block"
     """解析器的名称。"""
 
-    tag_begin: str = "```yaml"
+    tag_begin: str = "<yaml>"
     """代码块的开始标签。"""
 
     content_hint: str = "{your_yaml_dictionary}"
     """内容提示。"""
 
-    tag_end: str = "```"
+    tag_end: str = "</yaml>"
     """代码块的结束标签。"""
 
     _format_instruction = (
-        "Respond a YAML dictionary in a markdown's fenced code block as "
-        "follows:\n```yaml\n{content_hint}\n```\n"
-        "Important: Ensure all YAML keys and string values are correctly formatted. "
-        "When a string value contains special characters, enclose it in quotes. For example:\n"
+        "Respond with a YAML dictionary enclosed in XML tags as follows:\n"
+        "<yaml>\n{content_hint}\n</yaml>\n"
+        "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
+        "1. For short, simple string values, you can write them directly.\n"
+        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
+        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
+        "   - Use '>' for long text that can be wrapped.\n"
+        "3. When a string value contains special characters, enclose it in double quotes.\n"
+        "4. Use '\\n' for line breaks within quoted strings.\n"
+        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
+        "6. Use \"'\" to represent single quotes within quoted strings.\n"
+        "Example:\n"
+        "<yaml>\n"
+        "short_text: This is a simple string\n"
+        "multi_line: |\n"
+        "  This is a multi-line string.\n"
+        "  It preserves line breaks.\n"
+        "long_text: >\n"
+        "  This is a long text that can be\n"
+        "  wrapped across multiple lines.\n"
+        "special_chars: \"This string contains \\\"quotes\\\" and 'apostrophes'.\"\n"
+        "with_linebreaks: \"This string has\\nline breaks.\"\n"
+        "</yaml>\n"
     )
     """YAML对象格式的指令。"""
 
     _format_instruction_with_schema = (
-        "Respond a YAML dictionary in a markdown's fenced code block as "
-        "follows:\n"
-        "```yaml\n"
-        "{content_hint}\n"
-        "```\n"
+        "Respond with a YAML dictionary enclosed in XML tags as follows:\n"
+        "<yaml>\n{content_hint}\n</yaml>\n"
         "The generated YAML dictionary MUST follow this schema: \n"
         "{schema}\n"
-        "Important: Ensure all YAML keys and string values are correctly formatted. "
-        "When a string value contains special characters, enclose it in quotes.\n"
+        "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
+        "1. For short, simple string values, you can write them directly.\n"
+        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
+        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
+        "   - Use '>' for long text that can be wrapped.\n"
+        "3. When a string value contains special characters, enclose it in double quotes.\n"
+        "4. Use '\\n' for line breaks within quoted strings.\n"
+        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
+        "6. Use \"'\" to represent single quotes within quoted strings.\n"
+        "Example:\n"
+        "<yaml>\n"
+        "description: |\n"
+        "  This is a multi-line description.\n"
+        "  It preserves line breaks.\n"
+        "summary: >\n"
+        "  This is a long summary that can be\n"
+        "  wrapped across multiple lines.\n"
+        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
+        "with_linebreaks: \"This text has\\nline breaks.\"\n"
+        "</yaml>\n"
     )
     """带有模式的YAML对象格式指令。"""
 
@@ -157,9 +191,7 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
 
                 # 修复缺失的标签
                 if e.missing_begin_tag:
-                    response_copy.text = (
-                        self.tag_begin + "\n" + response_copy.text
-                    )
+                    response_copy.text = self.tag_begin + response_copy.text
                 if e.missing_end_tag:
                     response_copy.text = response_copy.text + self.tag_end
 
@@ -173,7 +205,7 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
                 # 用修复后的响应替换原响应
                 response.text = response_copy.text
 
-                logger.debug("通过手动添加标签修复了缺失的标签。")
+                logger.debug("通过手动添加XML标签修复了缺失的标签。")
 
             except TagNotFoundError:
                 # 如果缺失的标签无法修复，则引发原始错误
@@ -182,12 +214,14 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         # 将内容解析为YAML对象
         try:
             parsed_yaml = yaml.safe_load(extract_text)
+            # 后处理解析后的内容
             response.parsed = parsed_yaml
         except yaml.YAMLError as e:
             raw_response = f"{self.tag_begin}{extract_text}{self.tag_end}"
             raise JsonParsingError(
                 f"{self.tag_begin} 和 {self.tag_end} 之间的内容必须是一个YAML对象。"
                 f'解析 "{raw_response}" 时发生错误: {e}',
+                f'解析器提示词：\n {self.format_instruction}',
                 raw_response=raw_response,
             ) from None
 

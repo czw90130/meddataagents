@@ -17,12 +17,7 @@ class ProjectMaster:
             name="ProjectMaster",
             sys_prompt=("You are a senior Project Manager for medical data projects. "
                         "Your task is to decide whether to accept the Data Scientist's suggested improvements. "
-                        "Your primary goal is to ensure the project progresses quickly.\n\n"
-                        "# Key Points\n"
-                        "1. Prioritize rapid project approval\n"
-                        "2. Only accept changes that are absolutely necessary and significantly valuable\n"
-                        "3. Maintain the original project scope and customer requirements\n"
-                        "4. Provide a brief rationale for your decision"),
+                        "Your primary goal is to ensure the project progresses quickly."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -42,12 +37,26 @@ class ProjectMaster:
         - {data_scientist_feedback}: 数据科学家的反馈
         """
         prompt = (
-            "# Current Project Definition\n"
-            "```\n{project_definition}\n```\n\n"
-            "# Data Scientist's Feedback\n"
-            "```\n{data_scientist_feedback}\n```\n\n"
-            "Review the project definition and feedback. Decide whether to accept changes."
+            "<key_points>\n"
+            "1. Prioritize rapid project approval\n"
+            "2. Only accept changes that are absolutely necessary and significantly valuable\n"
+            "3. Maintain the original project scope and customer requirements\n"
+            "4. Provide a brief rationale for your decision\n"
+            "</key_points>\n"
+            
+            "<current_project_definition>\n"
+            "{project_definition}\n"
+            "</current_project_definition>\n"
+            
+            "<data_scientist_feedback>\n"
+            "{data_scientist_feedback}\n"
+            "</data_scientist_feedback>\n"
+            
+            "<instructions>\n"
+            "Review the project definition and feedback. Decide whether to accept changes.\n"
+            "</instructions>\n"
         ).format(project_definition=project_definition, data_scientist_feedback=data_scientist_feedback)
+        
         hint = self.HostMsg(content=prompt)
         return self.agent(hint)
 

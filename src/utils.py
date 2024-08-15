@@ -203,7 +203,7 @@ class AgentGroups:
                 print("Project Manager needs more information. Asking user...")
                 user_response = user_agent().content
                 user_requirements += f"\n\nAdditional User Information:\n{user_response}"
-                current_definition = pm(prev=self.dumps_json(current_definition.metadata), msg=user_agent().content)
+                current_definition = pm(prev=self.dumps_json(current_definition.metadata), msg=user_response)
                 continue
 
             print(f"Optimization round remain {review_times}...")

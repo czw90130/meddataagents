@@ -21,7 +21,7 @@ class DocScreener:
             sys_prompt=(
                 "You are a Document Screener specialized in analyzing and summarizing various types of documents. "
                 "Your task is to review document content, provide a summary, determine the document type, "
-                "and assess its structure.\n\n"
+                "and assess its structure."
             ),
             model_config_name="kuafu3.5",
             use_memory=False
@@ -73,13 +73,17 @@ class DocScreener:
         prepared_content = self.prepare_content(text_content, content_name)
         
         prompt = (
-            "# Task Overview\n"
+            "<task_overview>\n"
             "Analyze the provided document content and report on:\n"
             "1. Content summary\n"
             "2. Document type\n"
-            "3. Document structure\n\n"
-            "# Document Types (Prioritize TABLE types for spreadsheet formats)\n"
+            "3. Document structure\n"
+            "</task_overview>\n\n"
+            
+            "<document_types>\n"
+            "Prioritize TABLE types for spreadsheet formats\n"
             "- NONE: Empty/unrecognizable\n"
+            "<enums>"
             "- PLAIN_TEXT: Pure text\n"
             "- TEXT_WITH_IMGS, TEXT_WITH_TABLES, TEXT_WITH_IMGS_TABLES: Text with images/tables\n"
             "- UNFORMATTED_TABLE: Tabular data without clear formatting\n"
@@ -88,27 +92,42 @@ class DocScreener:
             "- RAW_DATA_LIST: Data list without headers\n"
             "- STRUCTURED_REPORT: Well-structured report\n"
             "- MULTI_SECTION_DOC: Multiple distinct sections\n"
-            "- MIXED_CONTENT: Mix of different content types\n\n"
-            "# Structure Categories\n"
+            "- MIXED_CONTENT: Mix of different content types\n"
+            "</enums>"
+            "</document_types>\n\n"
+            
+            "<structure_categories>\n"
+            "<enums>"
             "- WELL: Clear and readable\n"
             "- UNREADABLE: Cannot be read normally\n"
-            "- RECONCILE: Can be reconstructed (e.g., double-column PDF)\n\n"
-            "# Key Points\n"
+            "- RECONCILE: Can be reconstructed (e.g., double-column PDF)\n"
+            "</enums>"
+            "</structure_categories>\n\n"
+            
+            "<key_points>\n"
             "1. For .xls, .xlsx, .csv files, prioritize TABLE or RAW_DATA_LIST types.\n"
             "2. In Excel-to-markdown conversions, evaluate subtables (marked with '#') separately.\n"
-            "3. Consider file extension in type determination.\n\n"
-            "# Document Content\n"
-            f"{prepared_content}\n\n"
+            "3. Consider file extension in type determination.\n"
+            "</key_points>\n\n"
+        )
+            
+        suffix_prompt = ("<document_content>\n"
+            f"{prepared_content}\n"
+            "</document_content>\n\n"
+            
+            "<instructions>\n"
             "Analyze the above content and provide:\n"
             "1. Concise summary of main points\n"
             "2. Document type (prioritize TABLE/RAW_DATA_LIST for spreadsheets)\n"
             "3. Structure assessment (WELL/UNREADABLE/RECONCILE)\n"
-            "Format your response for easy parsing."
+            "Format your response for easy parsing.\n"
+            "</instructions>\n"
         )
+        
         if content_name is not None:
-            prompt = f"# Document Name: {content_name}\n\n" + prompt
+            suffix_prompt = f"<document_name>{content_name}</document_name>\n\n" + suffix_prompt
 
-        hint = self.HostMsg(content=prompt)
+        hint = self.HostMsg(content=prompt+suffix_prompt)
         return self.agent(hint)
 
     def __call__(self, input_data, tmp_dir=None):

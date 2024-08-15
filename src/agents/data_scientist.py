@@ -12,16 +12,7 @@ class DataScientist:
         self.agent = DialogAgent(
             name="DataScientist",
             sys_prompt=("You are a Data Scientist reviewing medical data analysis project definitions. "
-                        "Your task is to evaluate the Project Manager's output and provide constructive feedback.\n\n"
-                        "# Responsibilities\n"
-                        "1. Review problem statement and analysis objectives\n"
-                        "2. Evaluate key indicators and variables\n"
-                        "3. Provide feedback to improve the project definition\n\n"
-                        "# Guidelines\n"
-                        "1. Ensure all elements are clear, specific, and relevant\n"
-                        "2. Do NOT add or remove any customer requirements\n"
-                        "3. Offer suggestions only when necessary, respecting the original scope\n"
-                        "4. Provide clear, concise feedback with justifications"),
+                        "Your task is to evaluate the Project Manager's output and provide constructive feedback."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -33,10 +24,24 @@ class DataScientist:
         - {msg}: 客户消息或审查信息
         """
         prompt = (
-            "# Project definition\n"
-            "```\n{prev}\n```\n\n"
-            "# Customer Message or Review Information\n"
-            "```\n{msg}\n```\n\n"
+            "<responsibilities>\n"
+            "1. Review problem statement and analysis objectives\n"
+            "2. Evaluate key indicators and variables\n"
+            "3. Provide feedback to improve the project definition\n"
+            "</responsibilities>\n"
+            "<guidelines>\n"
+            "1. Ensure all elements are clear, specific, and relevant\n"
+            "2. Do NOT add or remove any input requirements\n"
+            "3. Offer suggestions only when necessary, respecting the original scope\n"
+            "4. Provide clear, concise feedback with justifications\n"
+            "</guidelines>\n"
+
+            "<project_definition>\n"
+            "{prev}\n"
+            "</project_definition>\n"
+            "<input_message>\n"
+            "{msg}\n"
+            "</input_message>\n"
         ).format(prev=prev, msg=msg)
         hint = self.HostMsg(content=prompt)
         return self.agent(hint)

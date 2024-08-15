@@ -17,14 +17,7 @@ class AnnotationJudge:
             name="AnnotationJudge",
             sys_prompt=("You are an expert judge who needs to make a final decision on whether to adopt "
                         "the Reviewer's suggestions and ask the Annotator to optimize the annotations, "
-                        "or ignore the Reviewer's opinions and directly accept the Annotator's results.\n\n"
-                        "# Decision Guidelines\n"
-                        "When making your decision, consider the following guidelines:\n"
-                        "1. If there are no obvious errors in the annotations, you should consider making a decision of False.\n"
-                        "2. If the optimization suggestions provided by the Reviewer are not very clear or important, you should consider making a decision of False.\n"
-                        "3. If the existing annotations are already accurate and complete enough, you should consider making a decision of False.\n\n"
-                        "Your goal is to ensure that any changes to the annotations are necessary and add significant value.\n\n"
-                        "Based on the reference and the Reviewer's feedback, you need to make a decision and provide a brief reason."),
+                        "or ignore the Reviewer's opinions and directly accept the Annotator's results."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -35,7 +28,7 @@ class AnnotationJudge:
         - reason: 决策的简要解释
         """
         self.parser = MarkdownYAMLDictParser(
-            {
+            content_hint={
                 "decision": "Boolean value (True/False). Whether adopt the reviewer's suggestions and ask the annotator to optimize the annotations accordingly.",
                 "reason": "String that provide a brief explanation for your decision."
             }
@@ -50,6 +43,13 @@ class AnnotationJudge:
         - {info}: 待注释的信息
         """
         prompt = (
+            "# Decision Guidelines\n"
+            "When making your decision, consider the following guidelines:\n"
+            "1. If there are no obvious errors in the annotations, you should consider making a decision of False.\n"
+            "2. If the optimization suggestions provided by the Reviewer are not very clear or important, you should consider making a decision of False.\n"
+            "3. If the existing annotations are already accurate and complete enough, you should consider making a decision of False.\n\n"
+            "Your goal is to ensure that any changes to the annotations are necessary and add significant value.\n\n"
+            "Based on the reference and the Reviewer's feedback, you need to make a decision and provide a brief reason."
             "# JSON Reference for Medical Entity Annotation\n"
             "```\n{tags}\n```\n\n"
             "# Annotation Requirements or Optimization Suggestions\n"

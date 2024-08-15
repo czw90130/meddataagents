@@ -45,7 +45,9 @@ class TableAnalyst(ReActAgent):
             name=TableAnalyst,
             model_config_name="kuafu3.5",
             service_toolkit=service_toolkit,
-            sys_prompt=self._generate_sys_prompt(),
+            sys_prompt=(
+                "You are an advanced Table Analyst for SQL databases. Your role is to analyze data structures, "
+                "perform in-depth analysis, and provide valuable insights."),
             verbose=True
         )
         
@@ -108,33 +110,36 @@ class TableAnalyst(ReActAgent):
         返回:
             str: 系统提示字符串。
         """
-        return (
-            "You are an advanced Table Analyst for SQL databases. Your role is to analyze data structures, "
-            "perform in-depth analysis, and provide valuable insights. Follow these guidelines:\n\n"
-            
-            "1. Use available methods effectively:\n"
-            "   - get_all_table_headers(): Understand database structure\n"
-            "   - run_sql_query(): Perform complex SQL analysis\n"
-            "   - execute_python_code(): Conduct advanced, combined analysis\n\n"
-            
-            "2. Analysis principles:\n"
-            "   - Treat all tables equally, without bias\n"
-            "   - Ensure unbiased analysis in cross-table relationships\n"
-            "   - Consider broader context and interconnections\n"
-            "   - For long-text fields, note their existence and potential relevance\n\n"
-            
-            "3. Focus on:\n"
-            "   - Identifying actionable trends and insights\n"
-            "   - Providing clear, concise summaries\n"
-            "   - Suggesting data-driven recommendations\n\n"
-            
-            "4. Remember:\n"
-            "   - Avoid analyzing long-text content in detail\n"
-            "   - Be skeptical of SQL results when analyzing long text fields\n"
-            "   - Other specialized agents can process long-text data if needed\n\n"
-            
-            "Aim for accurate, insightful, and concise analysis."
-        )
+        return '''
+<guidelines>
+    <methods>
+        <method>get_all_table_headers(): Understand database structure</method>
+        <method>run_sql_query(): Perform complex SQL analysis</method>
+        <method>execute_python_code(): Conduct advanced, combined analysis</method>
+    </methods>
+
+    <principles>
+        <item>Treat all tables equally, without bias</item>
+        <item>Ensure unbiased analysis in cross-table relationships</item>
+        <item>Consider broader context and interconnections</item>
+        <item>For long-text fields, note their existence and potential relevance</item>
+    </principles>
+
+    <focus>
+        <item>Identifying actionable trends and insights</item>
+        <item>Providing clear, concise summaries</item>
+        <item>Suggesting data-driven recommendations</item>
+    </focus>
+
+    <cautions>
+        <item>Avoid analyzing long-text content in detail</item>
+        <item>Be skeptical of SQL results when analyzing long text fields</item>
+        <item>Other specialized agents can process long-text data if needed</item>
+    </cautions>
+</guidelines>
+
+<objective>Aim for accurate, insightful, and concise analysis.</objective>
+'''
 
     def get_all_table_headers(self, *args, **kwargs) -> ServiceResponse:
         """
@@ -230,17 +235,24 @@ class TableAnalyst(ReActAgent):
             return self.database_summary
         
         tb_headers = json.dumps(self.get_all_table_headers().content, indent=2, ensure_ascii=False)
-        print("------------------------------------------------Table Headers:")
-        print(tb_headers)
         summary = ""
         # 第一轮：数据库概览
         task1 = Msg(
             name="user",
             content=(
-                "# 数据库概览"
-                f"- 使用 get_all_table_headers() 列出的基本信息为: \n{tb_headers}\n。"
-                "- 根据以上内容提供数据库的整体概览并简要描述数据库的整体结构和主要内容。\n"
-                "- 使用 Markdown 语法格式化你的输出"
+                "<system_prompt>\n"
+                f"{self._generate_sys_prompt()}\n"
+                "</system_prompt>\n"
+                "<task>Database Overview</task>\n"
+                "<context>\n"
+                f"{tb_headers}\n"
+                "</context>\n"
+                "<instructions>\n"
+                "Based on the information provided by get_all_table_headers():\n"
+                "1. Provide an overall overview of the database\n"
+                "2. Briefly describe the overall structure and main content of the database\n"
+                "3. Use Markdown syntax to format your output\n"
+                "</instructions>\n"
             ),
             role="user"
         )
@@ -251,12 +263,17 @@ class TableAnalyst(ReActAgent):
         task2 = Msg(
             name="user",
             content=(
-                "# 表格与数据分析"
-                "- 基于之前的概览,进行更深入的数据分析，重点关注整个数据库的主要趋势和模式：\n"
-                "1. 表内数据项之间的关系和模式\n"
-                "2. 表与表之间的关联和联系\n"
-                "3. 跨表数据模式和趋势\n"
-                "- Markdown 语法格式化你的输出"
+                "<system_prompt>\n"
+                f"{self._generate_sys_prompt()}\n"
+                "</system_prompt>\n"
+                "<task>In-depth Data Analysis</task>\n"
+                "<instructions>\n"
+                "Based on the previous overview, conduct a deeper data analysis focusing on:\n"
+                "1. Relationships and patterns within table data items\n"
+                "2. Associations and connections between tables\n"
+                "3. Cross-table data patterns and trends\n"
+                "Use Markdown syntax to format your output\n"
+                "</instructions>\n"
             ),
             role="user"
         )
@@ -279,7 +296,29 @@ class TableAnalyst(ReActAgent):
         """
         if self.database_summary is None:
             self.summarize_database()
-        return super().__call__(msg)
+        task = Msg(
+            name="user",
+            content=(
+                "<system_prompt>\n"
+                f"{self._generate_sys_prompt()}\n"
+                "</system_prompt>\n"
+                "<task>Specific Analysis Request</task>\n"
+                "<context>\n"
+                f"{self.database_summary}\n"
+                "</context>\n"
+                "<user_query>\n"
+                f"{msg}\n"
+                "</user_query>\n"
+                "<instructions>\n"
+                "Based on the database summary and the user's query:\n"
+                "1. Provide a targeted analysis addressing the specific request\n"
+                "2. Use relevant data and insights from the database\n"
+                "3. Structure your response using XML tags as specified in the system prompt\n"
+                "</instructions>\n"
+            ),
+            role="user"
+        )
+        return super().__call__(task)
 
 # 使用示例
 if __name__ == "__main__":
@@ -293,13 +332,6 @@ if __name__ == "__main__":
     summary_report = analyst.summarize_database()
     print(summary_report)
     
-    # 示例任务
-    task = Msg(
-        name="user",
-        content="Analyze the sales data in our database. Focus on the trends and patterns in the 'sales' table.",
-        role="user"
-    )
-    
     # 执行分析
-    result = analyst(task)
+    result = analyst("Analyze the sales data in our database. Focus on the trends and patterns in the 'sales' table.")
     print(result.content)

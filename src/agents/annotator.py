@@ -12,24 +12,7 @@ class Annotator:
         self.agent = DialogAgent(
             name="Annotator",
             sys_prompt=("You are a professional medical data annotator. You need to annotate a piece of \"information\" "
-                        "based on a \"JSON Medical Annotation Reference\" and a series of \"annotation requirements\".\n\n"
-                        "You will receive content in the following format:\n\n"
-                        "# JSON Medical Annotation Reference\n"
-                        "```\n"
-                        "/* The format of the JSON reference table for medical entity annotation is: */\n"
-                        "/*\"{tag}\":\"{name}|{description}|{example}\"*/\n"
-                        "```\n\n"
-                        "# Annotation Requirements\n"
-                        "```\n"
-                        "/* Specific annotation requirements OR review result. */\n"
-                        "```\n\n"
-                        "# Information to be Annotated\n"
-                        "```\n"
-                        "/* If the information to be annotated already has annotation tags, it needs to be optimized "
-                        "or re-annotated according to the latest \"JSON Medical Annotation Reference\" and \"annotation requirements\". */\n"
-                        "```\n"
-                        "Additionally, ensure that the annotated content, excluding the tags themselves, matches the original text exactly. "
-                        "This includes all characters, numbers, and punctuation marks, and any spelling errors must be preserved as they are in the original text."),
+                        "based on a \"YAML Medical Annotation Reference\" and a series of \"annotation requirements\"."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -41,8 +24,27 @@ class Annotator:
         - {require}: 注释要求或优化建议
         - {info}: 待注释的信息
         """
+        pre_prompt = (
+            "You will receive content in the following format:\n\n"
+            "# YAML Medical Annotation Reference\n"
+            "```\n"
+            "/* The format of the YAML reference table for medical entity annotation is: */\n"
+            "/*\"{tag}\":\"{name}|{description}|{example}\"*/\n"
+            "```\n\n"
+            "# Annotation Requirements\n"
+            "```\n"
+            "/* Specific annotation requirements OR review result. */\n"
+            "```\n\n"
+            "# Information to be Annotated\n"
+            "```\n"
+            "/* If the information to be annotated already has annotation tags, it needs to be optimized "
+            "or re-annotated according to the latest \"YAML Medical Annotation Reference\" and \"annotation requirements\". */\n"
+            "```\n"
+            "Additionally, ensure that the annotated content, excluding the tags themselves, matches the original text exactly. "
+            "This includes all characters, numbers, and punctuation marks, and any spelling errors must be preserved as they are in the original text."
+        )
         prompt = (
-            "# JSON Reference for Medical Entity Annotation\n"
+            "# YAML Reference for Medical Entity Annotation\n"
             "```\n{tags}\n```\n\n"
             "# Annotation Requirements or Optimization Suggestions\n"
             "```\n{require}\n```\n"
@@ -50,7 +52,7 @@ class Annotator:
             "```\n{info}\n```\n"
             "Return the results with annotations DIRECTLY, without any markdown or json format.\n"
         ).format(tags=tags, require=require, info=info)
-        hint = self.HostMsg(content=prompt)
+        hint = self.HostMsg(content=pre_prompt+prompt)
         return self.agent(hint)
 
     def __call__(self, *args, **kwargs):
