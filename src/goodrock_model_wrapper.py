@@ -86,41 +86,24 @@ class GoodRockModelWrapper(ModelWrapperBase):
 
         # Extract system prompt and format messages
         # TODO: Text Only 
-        system_prompt = "You are a helpful assistant."
+        # system_prompt = "You are a helpful assistant."
         formatted_messages = ""
         for msg in messages:
-            if msg["role"] == "system":
-                system_prompt = msg["content"]
-            else:
-                formatted_messages += f"{msg['role']}:\n {msg['content']}\n\n"
+            # if msg["role"] == "system":
+            #     system_prompt = msg["content"]
+            # else:
+            formatted_messages += f"{msg['role']}:\n {msg['content']}\n\n"
         
         formatted_messages = [{"role": "user", "content": formatted_messages[:-2]}]
 
         # Prepare the request body
         body = {
             "llm_model": self.model_name,
-            "system_prompt": system_prompt,
+            "system_prompt": "",
             "messages": formatted_messages,
             "max_tokens": self.max_length,
             # "params": kwargs
         }
-        
-        # body = {
-        #     "llm_model":"kuafu-max-v3.5",
-        #     "system_prompt": "你是一个有帮助的AI助手。",
-        #     "messages": [
-        #         {
-        #         "role": "user",
-        #         "content": [
-        #             {
-        #             "type": "text",
-        #             "text": "介绍一下生日"
-        #             }
-        #         ]
-        #         }
-        #     ],
-        #     "max_tokens": 1000
-        # }
 
         headers = {
             # "Content-Type": "application/json",

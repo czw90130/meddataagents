@@ -154,3 +154,7 @@ dataset/
 *.db
 src/project_data.db.summary_*
 old.py
+src/user_requirements.txt
+src/final_definition.yaml
+src/annotate_tags.yaml
+src/table_header.yaml

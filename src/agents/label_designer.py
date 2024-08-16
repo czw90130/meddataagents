@@ -2,7 +2,7 @@ import os
 import sys
 from agentscope.agents import DictDialogAgent
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from yaml_object_parser import MarkdownYAMLDictParser
+from tools.yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 

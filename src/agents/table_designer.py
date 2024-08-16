@@ -1,5 +1,5 @@
 from agentscope.agents import DictDialogAgent
-from yaml_object_parser import MarkdownYAMLDictParser
+from tools.yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 

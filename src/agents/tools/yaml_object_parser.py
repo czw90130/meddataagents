@@ -28,12 +28,14 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
 
     tag_begin: str = "<yaml>"
     """代码块的开始标签。"""
+    tag_begin2: str = "```yaml"
 
     content_hint: str = "{your_yaml_dictionary}"
     """内容提示。"""
 
     tag_end: str = "</yaml>"
     """代码块的结束标签。"""
+    tag_end2: str = "```"
 
     _format_instruction = (
         "Respond with a YAML dictionary enclosed in XML tags as follows:\n"
@@ -43,21 +45,23 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
         "   - Use '|' for multi-line strings that should preserve line breaks.\n"
         "   - Use '>' for long text that can be wrapped.\n"
-        "3. When a string value contains special characters, enclose it in double quotes.\n"
+        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
         "4. Use '\\n' for line breaks within quoted strings.\n"
         "5. Use '\\\"' to represent double quotes within quoted strings.\n"
         "6. Use \"'\" to represent single quotes within quoted strings.\n"
+        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
         "Example:\n"
         "<yaml>\n"
-        "short_text: This is a simple string\n"
-        "multi_line: |\n"
-        "  This is a multi-line string.\n"
+        "description: |\n"
+        "  This is a multi-line description.\n"
         "  It preserves line breaks.\n"
-        "long_text: >\n"
-        "  This is a long text that can be\n"
+        "summary: >\n"
+        "  This is a long summary that can be\n"
         "  wrapped across multiple lines.\n"
-        "special_chars: \"This string contains \\\"quotes\\\" and 'apostrophes'.\"\n"
-        "with_linebreaks: \"This string has\\nline breaks.\"\n"
+        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
+        "with_linebreaks: \"This text has\\nline breaks.\"\n"
+        "with_colon: \"This string contains a colon: be careful!\"\n"
+        "time: \"12:30\"\n"
         "</yaml>\n"
     )
     """YAML对象格式的指令。"""
@@ -72,10 +76,11 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
         "   - Use '|' for multi-line strings that should preserve line breaks.\n"
         "   - Use '>' for long text that can be wrapped.\n"
-        "3. When a string value contains special characters, enclose it in double quotes.\n"
+        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
         "4. Use '\\n' for line breaks within quoted strings.\n"
         "5. Use '\\\"' to represent double quotes within quoted strings.\n"
         "6. Use \"'\" to represent single quotes within quoted strings.\n"
+        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
         "Example:\n"
         "<yaml>\n"
         "description: |\n"
@@ -86,6 +91,8 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         "  wrapped across multiple lines.\n"
         "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
         "with_linebreaks: \"This text has\\nline breaks.\"\n"
+        "with_colon: \"This string contains a colon: be careful!\"\n"
+        "time: \"12:30\"\n"
         "</yaml>\n"
     )
     """带有模式的YAML对象格式指令。"""
@@ -198,37 +205,45 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         将响应的文本字段解析为YAML字典对象，将其存储在响应对象的parsed字段中，
         并检查是否存在必需的键。
         """
-        # 提取内容并尝试手动修复缺失的标签
+        extract_text = None
+        used_tags = None
+
+        # 首先尝试使用 <yaml> </yaml> 标签
         try:
             extract_text = self._extract_first_content_by_tag(
                 response,
                 self.tag_begin,
                 self.tag_end,
             )
-        except TagNotFoundError as e:
-            # 尝试通过添加标签来修复缺失的标签错误
+            used_tags = (self.tag_begin, self.tag_end)
+        except TagNotFoundError:
+            # 如果找不到 <yaml> </yaml> 标签，尝试 ```yaml ``` 标签
             try:
-                # 创建一个新的字符串，而不是修改 response.text
-                modified_text = response.text
-
-                # 修复缺失的标签
-                if e.missing_begin_tag:
-                    modified_text = self.tag_begin + modified_text
-                if e.missing_end_tag:
-                    modified_text = modified_text + self.tag_end
-
-                # 再次尝试提取内容
                 extract_text = self._extract_first_content_by_tag(
-                    ModelResponse(text=modified_text),  # 创建一个新的 ModelResponse 对象
-                    self.tag_begin,
-                    self.tag_end,
+                    response,
+                    self.tag_begin2,
+                    self.tag_end2,
                 )
-
-                logger.debug("通过手动添加XML标签修复了缺失的标签。")
-
+                used_tags = (self.tag_begin2, self.tag_end2)
             except TagNotFoundError:
-                # 如果缺失的标签无法修复，则引发原始错误
-                raise e from None
+                # 如果两种标签都找不到，尝试修复缺失的标签
+                try:
+                    modified_text = response.text
+                    if self.tag_begin not in modified_text:
+                        modified_text = self.tag_begin + modified_text
+                    if self.tag_end not in modified_text:
+                        modified_text = modified_text + self.tag_end
+
+                    extract_text = self._extract_first_content_by_tag(
+                        ModelResponse(text=modified_text),
+                        self.tag_begin,
+                        self.tag_end,
+                    )
+                    used_tags = (self.tag_begin, self.tag_end)
+                    logger.debug("通过手动添加XML标签修复了缺失的标签。")
+                except TagNotFoundError as e:
+                    # 如果所有尝试都失败，则引发原始错误
+                    raise e from None
 
         # 将内容解析为YAML对象
         try:
@@ -236,9 +251,9 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
             # 后处理解析后的内容
             response.parsed = parsed_yaml
         except yaml.YAMLError as e:
-            raw_response = f"{self.tag_begin}{extract_text}{self.tag_end}"
+            raw_response = f"{used_tags[0]}{extract_text}{used_tags[1]}"
             raise JsonParsingError(
-                f"{self.tag_begin} 和 {self.tag_end} 之间的内容必须是一个YAML对象。"
+                f"{used_tags[0]} 和 {used_tags[1]} 之间的内容必须是一个YAML对象。"
                 f'解析 "{raw_response}" 时发生错误: {e}',
                 f'解析器提示词：\n {self.format_instruction}',
                 raw_response=raw_response,

@@ -8,8 +8,8 @@ import pandas as pd
 from agentscope.agents import ReActAgent
 from agentscope.service import ServiceResponse, ServiceExecStatus, ServiceToolkit
 from agentscope.message import Msg
-from excel_processor import ExcelChunkProcessor
-import json
+from agents.tools.excel_processor import ExcelChunkProcessor
+import yaml
 import hashlib
 
 class TableAnalyst(ReActAgent):
@@ -129,12 +129,14 @@ class TableAnalyst(ReActAgent):
         <item>Identifying actionable trends and insights</item>
         <item>Providing clear, concise summaries</item>
         <item>Suggesting data-driven recommendations</item>
+        <item>Keep responses brief and to the point</item>
     </focus>
 
     <cautions>
         <item>Avoid analyzing long-text content in detail</item>
         <item>Be skeptical of SQL results when analyzing long text fields</item>
         <item>Other specialized agents can process long-text data if needed</item>
+        <item>Avoid lengthy explanations or verbose responses</item>
     </cautions>
 </guidelines>
 
@@ -234,7 +236,7 @@ class TableAnalyst(ReActAgent):
             self.database_summary = cached_summary
             return self.database_summary
         
-        tb_headers = json.dumps(self.get_all_table_headers().content, indent=2, ensure_ascii=False)
+        tb_headers = yaml.dump(self.get_all_table_headers().content, allow_unicode=True, default_flow_style=False)
         summary = ""
         # 第一轮：数据库概览
         task1 = Msg(

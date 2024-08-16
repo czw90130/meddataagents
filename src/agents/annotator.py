@@ -5,7 +5,7 @@ from agentscope.message import Msg
 class Annotator:
     """
     注释员(Annotator)
-    专业的医疗数据注释员，根据"JSON医疗注释参考"和一系列"注释要求"对"信息"进行注释。
+    专业的医疗数据注释员，根据"YAML医疗注释参考"和一系列"注释要求"对"信息"进行注释。
     """
     HostMsg = partial(Msg, name="Moderator", role="assistant")
     def __init__(self):
@@ -17,43 +17,151 @@ class Annotator:
             use_memory=True
         )
 
-    def annotate_task(self, tags, require, info):
+    def annotate_task(self, tags, info):
         """
-        注释任务提示词
-        - {tags}: JSON医疗实体注释参考
-        - {require}: 注释要求或优化建议
-        - {info}: 待注释的信息
+        执行医疗数据注释任务。
+
+        该函数根据提供的YAML医疗实体注释参考和一系列注释要求,对给定的信息进行专业的医疗数据注释。
+
+        Args:
+            tags (str): YAML格式的医疗实体注释参考,定义了可用的标签及其描述。
+            info (str): 需要进行注释的医疗信息文本。
+
+        Returns:
+            Msg: 包含注释结果的消息对象。注释结果直接包含在消息内容中,无额外格式。
+
+        Note:
+            - 函数使用预定义的提示词结构来指导注释过程。
+            - 注释过程遵循严格的准确性、结构和特定规则要求。
+            - 返回的注释结果应当只包含添加了标签的原始文本,不包含其他解释或格式。
         """
-        pre_prompt = (
-            "You will receive content in the following format:\n\n"
-            "# YAML Medical Annotation Reference\n"
-            "```\n"
-            "/* The format of the YAML reference table for medical entity annotation is: */\n"
-            "/*\"%tag%\":\"%name%|%description%|%example%\"*/\n"
-            "```\n\n"
-            "# Annotation Requirements\n"
-            "```\n"
-            "/* Specific annotation requirements OR review result. */\n"
-            "```\n\n"
-            "# Information to be Annotated\n"
-            "```\n"
-            "/* If the information to be annotated already has annotation tags, it needs to be optimized "
-            "or re-annotated according to the latest \"YAML Medical Annotation Reference\" and \"annotation requirements\". */\n"
-            "```\n"
-            "Additionally, ensure that the annotated content, excluding the tags themselves, matches the original text exactly. "
-            "This includes all characters, numbers, and punctuation marks, and any spelling errors must be preserved as they are in the original text."
-        )
-        prompt = (
-            "# YAML Reference for Medical Entity Annotation\n"
-            "```\n{tags}\n```\n\n"
-            "# Annotation Requirements or Optimization Suggestions\n"
-            "```\n1.标注的正确性：\n  确保标签对应正确,不能创造\"YAML reference for medical entity annotation\"以外的标签。\n  确保所有相关的实体类型都已使用，特别是在涉及到具体检查和诊断的地方。\n  不要对没有明确意义的名字进行标注。\n   错误标注举例：现为进一步<pro-trt>治疗</pro-trt>，... /*“治疗”并不具体*/\n   正确标注举例：现为进一步治疗，... /*该句不需要任何标签*/\n   错误标注举例：<thp-sur>术后</thp-sur>发现 ... /*“术后”并无法指代具体的治疗措施，应该去除thp-sur标签*/\n    正确标注举例：术后发现，.../*该句不需要任何标签*/\n2.嵌套结构：\n  标签不应该包含两个及以上的句子，跨句（包括逗号分割的停顿）需要分别标注。\n  注意避免嵌套错误，确保每个标签的闭合顺序正确。\n  正确标注举例：<sym-sym><bod-bdp>左眉弓上皮肤</bod-bdp>裂伤有<bod-sub>少量血液</bod-sub>流出</sym-sym>。\n  错误标注举例：<bod-bdp>左眉弓</bod-bdp>上<sym-sym>皮肤裂伤</sym-sym><bod-sub>有少量血液流出</bod-sub>。\n3.确保标注前后内文本内容完全一致。\n4.时间标注：\n  确保标注  tim明确表示绝对时间点或一个相对的时间，不应该标注没有时间点的事件。\n  错误标注举例：<tim>专科情况：</tim>... （不含时间点）\n  正确标注举例：专科情况：... （该句不需要任何标签）\n5.简写识别和分段：\n  确保简写的内容也能够被正确的标注，注意数字分段的分割。\n  正确标注举例：1 患者<pin-bas>男</pin-bas><pin-bas>53岁</pin-bas> 2<pin-pmh>既往体健</pin-pmh>3 缘于<tim>2小时前</tim>患者与人发生口角 ... ...\n  错误标注举例：1 患者男53岁2既往体健3 缘于<tim>2小时前</tim>患者与人发生口角 ... ...\n```\n"
-            "# Information to be Annotated\n"
-            "```\n{info}\n```\n"
-            "Return the results with annotations DIRECTLY, without any markdown or json format.\n"
-        ).format(tags=tags, require=require, info=info)
+        pre_prompt = """
+<task_structure>
+  <description>
+    You will receive content in the following XML structure:
+    <ref>: YAML Medical Entity Annotation Reference
+    <req>: Annotation Requirements
+    <info>: Information to be Annotated
+  </description>
+  
+  <instructions>
+    1. Annotate based on the provided reference and requirements.
+    2. Ensure exact content match, including characters, numbers, punctuation, and spelling errors.
+    3. Do not create tags outside the reference.
+    4. Avoid annotating names without clear significance.
+    5. Return results with annotations directly, without additional formatting.
+  </instructions>
+</task_structure>
+"""   # noqa
+
+        prompt = """
+<ref>
+  <format>
+    The reference follows this format:
+    "%tag%": "%name%|%description%|%example%"
+  </format>
+  <content>
+{tags}
+  </content>
+</ref>
+
+<req>
+  <accuracy>
+    1. Use correct tags from the reference only.
+    2. Annotate all relevant entity types, especially for specific examinations and diagnoses.
+    3. Avoid tagging non-specific terms:
+       <incorrect><pro-trt>treatment</pro-trt></incorrect>
+       <correct>treatment</correct>
+  </accuracy>
+
+  <structure>
+    1. Limit tags to single sentences or clauses.
+    2. Ensure proper nesting:
+       <correct><sym-sym><bod-bdp>left eyebrow skin</bod-bdp> laceration with <bod-sub>small amount of blood</bod-sub> flow</sym-sym></correct>
+       <incorrect><bod-bdp>left eyebrow</bod-bdp> <sym-sym>skin laceration</sym-sym> <bod-sub>with small amount of blood flow</bod-sub></incorrect>
+  </structure>
+
+  <time_annotation>
+    Tag only specific time points or relative periods:
+    <incorrect><tim>Specialist situation:</tim></incorrect>
+    <correct>Specialist situation:</correct>
+  </time_annotation>
+
+  <abbreviations_segmentation>
+    Annotate abbreviations and segment properly:
+    <correct>1 Patient <pin-bas>male</pin-bas> <pin-bas>53 years old</pin-bas> 2 <pin-pmh>Previously healthy</pin-pmh> 3 <tim>2 hours ago</tim> patient had an argument...</correct>
+    <incorrect>1 Patient male 53 years old 2 Previously healthy 3 <tim>2 hours ago</tim> patient had an argument...</incorrect>
+  </abbreviations_segmentation>
+</req>
+
+<info>
+{info}
+</info>
+""".format(tags=tags, info=info)
         hint = self.HostMsg(content=pre_prompt+prompt)
         return self.agent(hint)
+    
+if __name__ == "__main__":
+    import agentscope
+    from goodrock_model_wrapper import GoodRockModelWrapper
+    
+    agentscope.init(
+        model_configs="../../configs/model_configs.json"
+    )
+    
+    # Initialize the Annotator
+    annotator = Annotator()
 
-    def __call__(self, *args, **kwargs):
-        return self.annotate_task(*args, **kwargs)
+    # Test content
+    test_info = """1.患者老年女性，88岁；2.既往体健，否认药物过敏史。3.患者缘于5小时前不慎摔伤，伤及右髋部。伤后患者自感伤处疼痛，呼我院120接来我院，查左髋部X光片示：左侧粗隆间骨折。给予补液等对症治疗。患者病情平稳，以左侧粗隆间骨折介绍入院。患者自入院以来，无发热，无头晕头痛，无恶心呕吐，无胸闷心悸，饮食可，小便正常，未排大便。4.查体：T36.1C，P87次/分，R18次/分，BP150/93mmHg,心肺查体未见明显异常，专科情况：右下肢短缩畸形约2cm，右髋部外旋内收畸形，右髋部压痛明显，叩击痛阳性,右髋关节活动受限。右足背动脉波动好，足趾感觉运动正常。5.辅助检查：本院右髋关节正位片：右侧股骨粗隆间骨折。"""
+
+    # YAML format of the tags
+    yaml_tags = """
+tim: "Time|记录患者病程中的关键时间点|患者缘于<tim>1周前</tim><sym-sym>无明显诱因，出现腹痛伴腹胀，以<bod-bdp>上腹部</bod-bdp>为主</sym-sym>。"
+dis-dis: "Disease|具体的疾病或综合征，如糖尿病、阿尔茨海默病等|初步诊断为：1.<dis-dis>脑梗死</dis-dis>2.<dis-pos>脑出血后遗症</dis-pos>3.<dis-dis>高血压病2级很高危组</dis-dis>4.<dis-dis>陈旧性脑梗死</dis-dis>5.<dis-dis>慢性阻塞性肺疾病</dis-dis><dis-dis>肺大泡</dis-dis>。"
+dis-inj: "Injury|由于外界因素导致的中毒或身体损伤，如食物中毒、骨折等|<tim>昨日</tim>患者工作时不慎从3米高的梯子上摔下，致<dis-inj>左小腿开放性骨折</dis-inj>伴<sym-sig>大量出血</sym-sig>。"
+dis-dam: "Damage|器官或细胞的损伤，如肝损伤、神经损伤等|该患者<tim>2年前</tim>因<dis-dam>肝损伤</dis-dam>在<ins-hos>省人民医院</ins-hos>行<thp-sur><bod-bdp>肝左外叶</bod-bdp>切除术</thp-sur>。"
+dis-pos: "Post-treatment Status|描述手术后或其他治疗后的疾病状态，如直肠癌术后、化疗后状态等|患者<dis-pos>甲状腺癌术后</dis-pos><thp-fup>定期随访</thp-fup>。"
+sym-sym: "Symptom|患者主观感受到的不适或异常，如头痛、恶心等|患者自发病以来，<sym-sym>精神可</sym-sym>，<sym-sym>饮食差</sym-sym>，<sym-sym>睡眠可</sym-sym>，<sym-sym><bod-sub>尿</bod-sub>量正常</sym-sym>，<sym-sym>偶排<bod-sub>稀便</bod-sub></sym-sym>。"
+sym-sig: "Sign|体征，医生通过检查发现的客观异常，如高血压、黄疸等|体检发现<sym-sig><bod-bdp>双下肢</bod-bdp>轻度水肿</sym-sig>，<ite-phy>血压160/100mmHg</ite-phy>。"
+ite-phy: "Physical|体格检查，对患者身体进行的全面检查，如身高体重测量等|体格检查：<ite-phy>T37.2℃</ite-phy>，<ite-phy>P82次/分</ite-phy>，<ite-phy>R18次/分</ite-phy>，<ite-phy>BP120/80mmHg</<ite-phy>。"
+ite-lab: "Laboratory|在实验室进行的各种检查，如血液、尿液等|血常规检查示<ite-lab>中性粒细胞比例0.85</ite-lab>，<ite-lab>血红蛋白120g/L</ite-lab>。<ite-lab>酮体-</ite-lab>，<ite-lab>潜血-</ite-lab>，<ite-lab>尿蛋白-</ite-lab>，<ite-lab>白细胞1+</ite-lab>，<ite-lab>尿糖-</ite-lab>。"
+ite-img: "Imaging|使用影像技术进行的检查，如X射线、CT、MRI等|患者<tim>10月余前</tim>因<dis-dis>双肾结石</dis-dis><tim>8月余</tim>，<dis-pos><thp-sur><bod-bdp>左肾</bod-bdp>造瘘术</thp-sur>后<tim>25天</tim></dis-pos>就诊于<ins-hos>*****医院</ins-hos>，<ite-img>KUB示<dis-dis>右肾多发结石</dis-dis></ite-img>。"
+ite-end: "Endoscopy|使用内窥镜进行的检查，如胃镜、肠镜等|患者<sym-sym>进食后出现<bod-bdp>上腹</bod-bdp>不适</sym-sym>，<ite-end>胃镜检查发现<dis-dis>慢性胃炎</dis-dis></ite-end>。"
+ite-fnc: "Functional|评估器官或系统功能的检查，如心电图检查等|<ite-fnc>肺功能检查提示<dis-dis>阻塞性通气功能障碍</dis-dis></ite-fnc>，<ite-fnc>FEV1/FVC为65%</ite-fnc>。"
+ite-pat: "Pathology|通过组织或细胞样本进行的显微镜检查，如活检等|<ite-pat>肠镜活检病理示<dis-dis>溃疡性结肠炎</dis-dis></ite-pat>，炎症较前减轻。"
+ite-gen: "Genetic|检测遗传信息和分子特征的检查，如基因检测、PCR等|患儿<pin-bas>2岁</pin-bas>，<ite-gen>染色体核型分析示21三体综合征</ite-gen>。"
+bod-sub: "Substance|身体中的物质，如血液、尿液等|患者于<tim>3天前</tim>无明显诱因出现<sym-sym>咳嗽，咳<bod-sub>白色粘痰</bod-sub></sym-sym>，<sym-sym>伴发热，最高体温38.5℃</sym-sym>。"
+bod-bdp: "Body part|疾病、症状和体征发生的人体解剖学部位，如心脏、肝脏、皮肤、黏膜、双下肢等|体格检查：<sym-sig><bod-bdp>双肺</bod-bdp>呼吸音粗，<bod-bdp>右下肺</bod-bdp>可闻及湿啰音</sym-sig>。"
+ins-dep: "Department|医疗机构中的具体科室，如内科、外科等|建议患者<thp-fup><tim>明日</tim>至<ins-dep>心内科</ins-dep>门诊复诊</thp-fup>。"
+ins-hos: "Hospital|提供综合医疗服务的机构|患者<tim>1周前</tim>因<dis-dis>急性阑尾炎</dis-dis>于<ins-hos>武警总医院</ins-hos>行<thp-sur>阑尾切除术</thp-sur>。"
+ins-cli: "Clinic|提供门诊医疗服务的机构|<tim>2022年8月15日</tim>患者于<ins-cli>滨海新区xx诊所</ins-cli>就诊，<ite-lab>血常规示白细胞计数15.0*10^9/L</ite-lab>。"
+ins-hom: "Home|患者的家庭或居住地|患儿父母述患儿于<ins-hom>家中</ins-hom>不慎<dis-inj>被开水烫伤</dis-inj>，<sym-sig>伤处出现大片水疱</sym-sig>。"
+ins-myi: "My Institution|指代当前的医疗机构或部门|患者<tim>2小时前</tim>呼吸急促，意识不清，由家属拨打<ins-ems>120</ins-ems>送至<ins-myi>我院</ins-myi><ins-dep>急诊科</ins-dep>，... ，后转入<ins-myi>我科</ins-myi>"
+ins-ems: "Emergency Services|提供紧急医疗服务或救助的机构，如120，999等|患者于<tim>凌晨2点</tim>突发<sym-sym>胸痛、大汗淋漓</sym-sym>，家属即拨打<ins-ems>急救电话</ins-ems>。"
+ins-oth: "Other Institutions|包括非医疗社会机构、政府机构等，如养老院等|<tim>1个月前</tim>患者因生活不能自理转入<ins-oth>松江区敬老院</ins-oth>。"
+pin-bas: "Basic Info|包括年龄、性别、身高、体重等|患者，<pin-bas>男</pin-bas>，<pin-bas>68岁</pin-bas>，<pin-bas>汉族</pin-bas>，<pin-bas>已婚</pin-bas>，<pin-ohs>退休工人</pin-ohs>。"
+pin-lst: "Lifestyle|包括吸烟史、饮酒史及其他生活习惯等|<pin-lst>吸烟30年，平均1包/日</pin-lst>，<pin-lst>饮酒20年，平均100g/日</pin-lst>。"
+pin-pmh: "Past Medical History|患者的既往病史，如糖尿病史等|患者<pin-pmh>既往有<dis-dis>高血压病</dis-dis>史<tim>10余年</tim></pin-pmh>，<ite-phy>血压最高达180/100mmHg</ite-phy>。"
+pin-fmh: "Family Medical History|患者的家族病史|患者<pin-fmh>父亲<dis-dis>肝癌</dis-dis>去世</pin-fmh>，<pin-fmh>母亲有<dis-dis>2型糖尿病</dis-dis>史</pin-fmh>。"
+pin-ohs: "Occupational History|患者的职业及职业病史|患者<pin-ohs>矿工，接触粉尘<tim>20余年</tim></pin-ohs>。"
+pin-alh: "Allergy History|患者的过敏史|患者<pin-alh>青霉素过敏史</pin-alh>，<sym-sym>用药后出现皮疹、呼吸困难</sym-sym>。"
+thp-sur: "Surgery|通过手术手段进行的治疗|患者于<tim>上周</tim>在<ins-myi>本院</ins-myi>行<thp-sur><bod-bdp>甲状腺</bod-bdp>全切术</thp-sur>。"
+thp-mdt: "Medication Therapy|使用药物进行的治疗，包括放疗、化疗、免疫治疗和基因治疗等|给予<thp-mdt>阿司匹林抗血小板聚集</thp-mdt>、<thp-mdt>阿托伐他汀抗动脉粥样硬化</thp-mdt>、<thp-mdt>硝苯地平缓释片降压</thp-mdt>等药物治疗，患者病情明显好转。"
+thp-rpt: "Rehabilitation & Physical Therapy|帮助患者恢复功能的治疗，包括康复治疗和物理治疗等|<dis-pos>股骨颈骨折内固定术后</dis-pos>，嘱患者<thp-rpt>卧床休息，定期行下肢关节功能锻炼</thp-rpt>。"
+thp-prc: "Prevention|预防疾病或并发症的程序，如疫苗接种、健康宣教等|嘱患者<thp-prc>戒烟</thp-prc>，建议<thp-prc>接种流感疫苗</thp-prc>。"
+thp-fup: "Follow-up & Regular Activities|包括定期随访、定期治疗、定期检查等活动等|嘱患者<thp-fup>2周后门诊复查<ite-lab>甲功五项</ite-lab></thp-fup>，<thp-fup>必要时调整药物剂量</thp-fup>。"
+"""
+
+    # Perform annotation
+    result = annotator.annotate_task(yaml_tags, test_info)
+
+    # Print the result
+    print("Annotation Result:")
+    print(result.content)
+    
+
+
+
+
+

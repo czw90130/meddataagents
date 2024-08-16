@@ -4,7 +4,7 @@ import openpyxl
 import sqlite3
 import sys
 import hashlib
-import json
+import yaml
 
 class ExcelChunkProcessor:
     def __init__(self, db_name='data.db'):
@@ -126,7 +126,7 @@ class ExcelChunkProcessor:
         :param sheet_name: 工作表名称
         :param content_hash: 文件内容的哈希值
         :param table_name: 对应的数据库表名
-        :param columns: 表的列信息, 以JSON字符串形式存储
+        :param columns: 表的列信息, 以YAML字符串形式存储
         :param summary: 表的摘要
         """
         self.ensure_connected()
@@ -136,7 +136,8 @@ class ExcelChunkProcessor:
         ON CONFLICT(table_name) 
         DO UPDATE SET content_hash = excluded.content_hash, columns = excluded.columns, summary = excluded.summary
         """
-        self.conn.execute(insert_query, (file_path, sheet_name, content_hash, table_name, json.dumps(columns, ensure_ascii=False), summary))
+        columns_yaml = yaml.dump(columns, allow_unicode=True, default_flow_style=False)
+        self.conn.execute(insert_query, (file_path, sheet_name, content_hash, table_name, columns_yaml, summary))
         self.conn.commit()
 
     def update_summary(self, file_path, sheet_name, summary):
@@ -398,7 +399,7 @@ class ExcelChunkProcessor:
 
         for row in cursor.fetchall():
             file_path, sheet_name, table_name, columns = row
-            columns = json.loads(columns)
+            columns = yaml.safe_load(columns)
             if key in columns:
                 if is_exact_match:
                     if value is None or value == "":
@@ -429,14 +430,14 @@ class ExcelChunkProcessor:
                         'data': result_data
                     }
 
-                    # 将结果转换为排序后的JSON字符串
-                    unique_result = json.dumps(result, sort_keys=True, ensure_ascii=False)
+                    # 将结果转换为排序后的YAML字符串
+                    unique_result = yaml.dump(result, sort_keys=True, allow_unicode=True, default_flow_style=False)
                     unique_results.add(unique_result)
 
                     all_results.append(result)
 
         if is_unique_result:
-            results = [json.loads(r) for r in unique_results]
+            results = [yaml.safe_load(r) for r in unique_results]
         else:
             results = all_results
 
@@ -524,7 +525,7 @@ class ExcelChunkProcessor:
         cursor = self.conn.execute(query)
         headers = {}
         for row in cursor.fetchall():
-            file_path, sheet_name, table_name, columns, summary = row
+            file_path, sheet_name, table_name, columns_yaml, summary = row
             # 获取表中的记录数
             count_query = f"SELECT COUNT(*) FROM '{table_name}'"
             count_cursor = self.conn.execute(count_query)
@@ -533,7 +534,7 @@ class ExcelChunkProcessor:
             headers[table_name] = {
                 'file_path': file_path,
                 'sheet_name': sheet_name,
-                'columns': json.loads(columns),
+                'columns': yaml.safe_load(columns_yaml),
                 'summary': summary,
                 'record_count': record_count
             }

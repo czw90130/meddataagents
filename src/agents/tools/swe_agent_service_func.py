@@ -44,7 +44,7 @@ def exec_py_linting(file_path: str) -> ServiceResponse:
             if result.stdout
             else "No lint errors found.",
         )
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError as e:  
         # 如果执行过程中出现错误，返回错误信息
         error_message = (
             e.stderr.strip()

@@ -1,7 +1,7 @@
 import os
 import re
 from collections import defaultdict
-import json
+import yaml
 import importlib
 from functools import partial
 
@@ -10,7 +10,7 @@ from agentscope.agents.user_agent import UserAgent
 
 from goodrock_model_wrapper import GoodRockModelWrapper
 
-from agents.excel_processor import ExcelChunkProcessor
+from agents.tools.excel_processor import ExcelChunkProcessor
 
 
 def check_nested_tags(text):
@@ -52,7 +52,8 @@ def check_nested_tags(text):
 class AgentGroups:
     
     HostMsg = partial(Msg, name="Moderator", role="assistant")
-    dumps_json = partial(json.dumps, separators=(',', ':'), indent=None, ensure_ascii=False)
+    dumps_yaml = partial(yaml.dump, allow_unicode=True, default_flow_style=False)
+
     def __init__(self, agents_dir='agents'):
         self.agents = {}
         for filename in os.listdir(agents_dir):
@@ -183,7 +184,7 @@ class AgentGroups:
             analyst_input = Msg(
                 name="ProjectManager",
                 role="assistant",
-                content=f"Provide insights based on more database analyze:\n\n{self.dumps_json(current_definition.metadata)}"
+                content=f"Provide insights based on more database analyze:\n\n{self.dumps_yaml(current_definition.metadata)}"
             )
             analyst_insights = table_analyst(analyst_input).content
             
@@ -194,8 +195,8 @@ class AgentGroups:
             if master_decision is not None:
                 pm_revision_input += f"\n----\n\nProject Master Decision:\n{master_decision.content}"
                 
-            pm_revision_input_str = self.dumps_json(pm_revision_input)
-            current_definition = pm(prev=self.dumps_json(current_definition.metadata) + "\n\n" + user_requirements, msg=pm_revision_input_str)
+            pm_revision_input_str = self.dumps_yaml(pm_revision_input)
+            current_definition = pm(prev=self.dumps_yaml(current_definition.metadata) + "\n\n" + user_requirements, msg=pm_revision_input_str)
         
             # 检查项目经理是否需要更多信息
             if current_definition.metadata.get("continue_ask", False):
@@ -203,19 +204,19 @@ class AgentGroups:
                 print("Project Manager needs more information. Asking user...")
                 user_response = user_agent().content
                 user_requirements += f"\n\nAdditional User Information:\n{user_response}"
-                current_definition = pm(prev=self.dumps_json(current_definition.metadata), msg=user_response)
+                current_definition = pm(prev=self.dumps_yaml(current_definition.metadata), msg=user_response)
                 continue
 
             print(f"Optimization round remain {review_times}...")
             remain_times -= 1
             
             # 数据科学家审查
-            ds_review = data_scientist(prev=self.dumps_json(current_definition.metadata) + "\n\n" + user_requirements, msg=f"\n\nDataAnalyst Insights:\n{analyst_insights}")
+            ds_review = data_scientist(prev=self.dumps_yaml(current_definition.metadata) + "\n\n" + user_requirements, msg=f"\n\nDataAnalyst Insights:\n{analyst_insights}")
             
             master_decision = None
             if remain_times < review_times:
                 # 项目主管决策
-                master_decision = proj_master(project_definition=self.dumps_json(current_definition.metadata), 
+                master_decision = proj_master(project_definition=self.dumps_yaml(current_definition.metadata), 
                                             data_scientist_feedback=ds_review.content)
                 
                 if not master_decision.content.get("decision", False):
@@ -247,20 +248,18 @@ class AgentGroups:
             table_headers (dict): 最终的表格头定义
             annotate_tags (dict): 最终的标注标签定义
         """
-
+        
         # 加载标签配置
         if isinstance(tag_config, str):
             if os.path.isfile(tag_config):
                 with open(tag_config, "r", encoding='utf-8') as f:
-                    json_data = json.load(f)
-                    annotate_tags = dict(json_data['tags'])
+                    annotate_tags = yaml.safe_load(f)
             else:
-                json_data = json.loads(tag_config)
-                annotate_tags = dict(json_data['tags'])
+                annotate_tags = yaml.safe_load(tag_config)
         elif isinstance(tag_config, dict):
             if isinstance(tag_config['tags'], str):
-                json_data = json.loads(tag_config['tags'])
-                annotate_tags = dict(json_data)
+                yaml_data = yaml.safe_load(tag_config['tags'])
+                annotate_tags = dict(yaml_data)
             else:
                 annotate_tags = tag_config['tags']
         else:
@@ -275,11 +274,11 @@ class AgentGroups:
         # 处理项目定义输入
         if isinstance(project_definition_input, Msg):
             if project_definition_input.metadata:
-                project_definition = self.dumps_json(project_definition_input.metadata)
+                project_definition = self.dumps_yaml(project_definition_input.metadata)
             else:
                 project_definition = project_definition_input.content
         elif not isinstance(project_definition_input, str):
-            project_definition = self.dumps_json(project_definition_input)
+            project_definition = self.dumps_yaml(project_definition_input)
         else:
             project_definition = project_definition_input
                 
@@ -302,8 +301,8 @@ class AgentGroups:
             print(f"Optimization round {i+1}/{review_times}")
 
             # 表格数据分析阶段
-            table_header_str = self.dumps_json(table_headers)
-            tags_json_str = self.dumps_json(annotate_tags)
+            table_header_str = self.dumps_yaml(table_headers)
+            tags_yaml_str = self.dumps_yaml(annotate_tags)
             analyst_input = Msg(
                 name="ProjectManager",
                 role="assistant",
@@ -313,12 +312,12 @@ class AgentGroups:
                          f"Project Definition:\n{project_definition}\n\n"
                          f"User Requirements:\n{user_requirements}\n\n"
                          f"Current Headers:\n{table_header_str}\n\n"
-                         f"Current Tags:\n{tags_json_str}")
+                         f"Current Tags:\n{tags_yaml_str}")
             )
             analyst_insights = table_analyst(analyst_input).content
 
             # 表格设计阶段
-            prev_headers_str = self.dumps_json(prev_headers)
+            prev_headers_str = self.dumps_yaml(prev_headers)
             new_table_headers = table_designer(
                 project_definition=project_definition,
                 user_requirements=user_requirements,
@@ -332,7 +331,7 @@ class AgentGroups:
                 user_requirements=user_requirements,
                 analyst_insights=analyst_insights,
                 headers=table_header_str,
-                tags=tags_json_str,
+                tags=tags_yaml_str,
             )
             
             # 数据架构审核阶段
@@ -341,7 +340,7 @@ class AgentGroups:
                 user_requirements=user_requirements,
                 analyst_insights=analyst_insights,
                 headers=table_header_str,
-                tags=tags_json_str,
+                tags=tags_yaml_str,
             )
             
             # 更新表头和标签
@@ -378,110 +377,3 @@ class AgentGroups:
 
         # 返回最终的表头定义和标注标签定义
         return table_headers, annotate_tags
-    
-    def annotate_tags(self, text, tag_config, review_times=3):
-        """
-        对给定的文本进行医学实体标注，并通过多轮审核和优化来提高标注质量。
-
-        工作流涉及的角色：
-        1. 标注员(Annotator)：根据给定的标签配置对文本进行初始标注。
-        2. 审核员(AnnotationReviewer)：审查标注结果，提供错误识别和优化建议。
-        3. 裁判(Judge)：根据审核员的反馈决定是否需要重新标注。
-
-        主要步骤：
-        1. 加载标签配置
-        2. 创建必要的代理（标注员、审核员、裁判）
-        3. 进行多轮标注-审核-判断循环，直到达到满意的结果或超过最大审核次数
-
-        参数:
-        text (str 或 Msg): 需要标注的文本内容
-        tag_config (str 或 dict): 标签配置信息，包含标签定义和要求
-        review_times (int): 最大审核次数，默认为3
-
-        返回:
-        Msg: 最终的标注结果
-        """
-
-        # 加载标签配置
-        if isinstance(tag_config, str):
-            if os.path.isfile(tag_config):
-                # 如果 tag_config 是文件路径，从文件中读取配置
-                with open(tag_config, "r", encoding='utf-8') as f:
-                    json_data = json.load(f)
-                    tags_json_str = self.dumps_json(json_data['tags'])
-                    require_str = json_data['require']
-            else:
-                # 如果 tag_config 是 JSON 字符串，直接解析
-                json_data = json.load(tag_config) # type: ignore
-                tags_json_str = self.dumps_json(json_data['tags'])
-                require_str = json_data['require']
-        elif isinstance(tag_config, dict):
-            # 如果 tag_config 是字典，提取标签和要求信息
-            if isinstance(tag_config['tags'], str):
-                tags_json_str = tag_config['tags']
-            else:
-                tags_json_str = self.dumps_json(tag_config['tags'])
-            require_str = tag_config['require']
-        else:
-            raise ValueError("Invalid tag_config format")
-
-        # 创建必要的代理
-        annotator = self.get_agent('Annotator')  # 创建标注员(Annotator)代理
-        
-        reviewer = self.get_agent('AnnotationReviewer')  # 创建审核员(AnnotationReviewer)代理
-
-        judge = self.get_agent('AnnotationJudge')  # 创建裁判(AnnotationJudge)代理
-        
-        # 准备输入文本
-        if isinstance(text, Msg):
-            x = text.content
-        else:
-            x = text
-        if not isinstance(x, str):
-            x = f"{x}"
-
-        review = None
-        while isinstance(x, str) or x.content.get("decision", False):
-            ## 标注员(Annotator)进行标注
-            result = annotator(
-                    tags=tags_json_str,  # 标签定义
-                    require=require_str if review is None else review,  # 标注要求或上一轮的审核意见
-                    info= x if isinstance(x, str) else result.content,  # 待标注的文本
-                )
-
-            ## 审核员(AnnotationReviewer)进行审核
-            # 检查标签的嵌套情况
-            check = check_nested_tags(result.content)
-            check_str = self.dumps_json(check)
-            
-            # 审核员执行审核任务
-            review = reviewer(
-                    tags=tags_json_str,  # 标签定义
-                    require=require_str if review is None else review,  # 标注要求或上一轮的审核意见
-                    info=result.content,  # 标注结果
-                    check=check_str,  # 标签嵌套检查结果
-                )
-            errors = review.content.get("errors","")  # 获取审核员发现的错误
-            suggestions = review.content.get("suggestions","")  # 获取审核员的优化建议
-
-            # 判断是否需要继续审核
-            if "" == errors:
-                if "" == suggestions:
-                    break  # 如果没有错误和建议，结束审核
-                review_times -= 2
-            else:
-                review_times -= 1
-            if review_times < 0:
-                break  # 如果超过最大审核次数，结束审核
-
-            # 整合审核意见
-            review_content = f"# Error Identification:\n{errors}\n\n# Optimization Suggestions:\n{suggestions}\n"
-
-            ## 裁判(Judge)进行判断
-            x = judge(
-                    tags=tags_json_str,  # 标签定义
-                    require=review_content,  # 审核意见
-                    info=result.content,  # 标注结果
-                )  # 判断是否需要重新标注
-
-        return result  # 返回最终的标注结果

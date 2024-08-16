@@ -3,10 +3,10 @@ import sys
 import pandas as pd
 from agentscope.agents import DictDialogAgent
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from yaml_object_parser import MarkdownYAMLDictParser
+from tools.yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
-from excel_processor import ExcelChunkProcessor
+from agents.tools.excel_processor import ExcelChunkProcessor
 
 class TableScreener:
     """
@@ -29,7 +29,7 @@ class TableScreener:
         self.parser = MarkdownYAMLDictParser(
             content_hint={
                 "sql_import": "Enum. Assessment of suitability for SQL import (NO, TRANS, or YES). Consider that long text with line breaks ('\\n') in cells does not indicate a broken table structure.",
-                "reasoning": "String. Explanation for the SQL import suitability choices, including consideration of subtables if present.",
+                "reasoning": "String. Explanation for the SQL import suitability choices.",
                 "headers": "YAML schema describing the table headers, including data types and descriptions. Use 'enum' type for fields with a limited set of recurring values."
             },
             keys_to_content="reasoning",
