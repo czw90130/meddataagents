@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import re
 from collections import defaultdict
@@ -11,6 +13,9 @@ from agentscope.agents.user_agent import UserAgent
 from goodrock_model_wrapper import GoodRockModelWrapper
 
 from agents.tools.excel_processor import ExcelChunkProcessor
+from agents.tools.execute_python_code import execute_python_code
+from agents.annotator import Annotator
+from agents.swe_agent import SWEAgent
 
 
 def check_nested_tags(text):
@@ -377,3 +382,49 @@ class AgentGroups:
 
         # 返回最终的表头定义和标注标签定义
         return table_headers, annotate_tags
+    
+    def make_data_table(self, db_path, table_header_string, annotate_tags_string, return_table_path, swe_template_path="agents/tools/swe_template/make_table.py"):
+        
+        return_table_path = os.path.abspath(return_table_path)
+        
+        db_processor = ExcelChunkProcessor(db_path)
+        with open(swe_template_path, 'r', encoding='utf-8') as f:
+            code_str = f.read()
+        
+        code_str = code_str.replace('<ANNOTATE_TAGS>', annotate_tags_string)
+        code_str = code_str.replace('<TABLE_HEADER>', table_header_string)
+        
+        # Initialize the Annotator
+        annotator = Annotator()
+        
+        result = execute_python_code(
+            code=code_str,
+            timeout=60,
+            maximum_memory_bytes=1024*1024*1000,  # 1000 MB
+            local_objects={"annotator": annotator, "db_processor": db_processor, "return_table_path": return_table_path},
+        )
+        print("Result:")
+        print(result)
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    import agentscope
+    from agentscope.message import Msg
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from goodrock_model_wrapper import GoodRockModelWrapper
+    
+    agentscope.init(
+        model_configs="configs/model_configs.json"
+    )
+    
+    ag = AgentGroups("./agents")
+    with open("table_header.yaml", 'r', encoding='utf-8') as f:
+        table_header_string = f.read()
+    with open("annotate_tags.yaml", 'r', encoding='utf-8') as f:
+        annotate_tags_string = f.read() 
+    ag.make_data_table("project_data.db", table_header_string, annotate_tags_string, os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.csv"))
+    
+    
+    
