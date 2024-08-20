@@ -17,21 +17,24 @@ SWE-agent是一个为解决github问题而设计的代理。
 from agentscope.agents import AgentBase
 from agentscope.message import Msg
 from agentscope.exception import ResponseParsingError
-from tools.yaml_object_parser import MarkdownYAMLDictParser
+from agents.tools.yaml_object_parser import MarkdownYAMLDictParser
 from typing import List, Callable, Optional, Union, Sequence
 import yaml
+import traceback
+from agentscope.service.service_status import ServiceExecStatus
+
 from agentscope.service import (
     ServiceFactory,
     execute_shell_command,
 )
 
-from tools.swe_agent_service_func import (
+from agents.tools.swe_agent_service_func import (
     exec_py_linting,
     write_file,
     read_file,
 )
 
-from tools.swe_agent_prompts import (
+from agents.tools.swe_agent_prompts import (
     get_system_prompt,
     get_context_prompt,
     get_step_prompt,
@@ -146,6 +149,7 @@ class SWEAgent(AgentBase):
         super().__init__(
             name=name,
             model_config_name=model_config_name,
+            use_memory=True,
         )
 
         self.memory_window = 6  # 记忆窗口大小
@@ -157,8 +161,36 @@ class SWEAgent(AgentBase):
 
         self.main_goal = ""  # 主要目标
         self.commands_prompt = ""  # 命令提示
-        self.parser = MarkdownYAMLDictParser()  # YAML解析器
+        self.parser = MarkdownYAMLDictParser(fix_model_config_name=model_config_name)  # YAML解析器
+        
+        self.commands_description_dict = {
+            "exit": "exit: Executed when the current task is complete, takes no arguments",
+            "scroll_up": "scroll_up: Scrolls up the current open file, will scroll up and show you the 100 lines above your current lines, takes no arguments",
+            "scroll_down": "scroll_down: Scrolls down the current open file, will scroll down and show you the 100 lines below your current lines'takes no arguments",
+            "goto": "goto: This will take you directly to the line <line_num> and show you the 100 lines below it. \n       line_num (int): The line number to go to.",
+        }
+
+        # 为其他命令添加描述
+        self.commands_description_dict["write_file"] = prepare_func_prompt(write_file)
+        self.commands_description_dict["read_file"] = prepare_func_prompt(read_file)
+        self.commands_description_dict["execute_shell_command"] = prepare_func_prompt(
+            execute_shell_command,
+        )
+        self.commands_description_dict["exec_py_linting"] = prepare_func_prompt(
+            exec_py_linting,
+        )
+        
         self.get_commands_prompt()  # 获取命令提示
+        
+    def add_command_func(self, name: str, func: Callable, instance=None) -> None:
+        if instance:
+            # 如果提供了实例,创建一个绑定方法
+            bound_func = func.__get__(instance, instance.__class__)
+            self.commands_description_dict[name] = bound_func
+        else:
+            self.commands_description_dict[name] = func
+        # 更新命令提示
+        self.commands_prompt += f"{name}: {prepare_func_prompt(func)}\n"
 
     def get_current_file_content(self) -> None:
         """
@@ -211,7 +243,7 @@ class SWEAgent(AgentBase):
         message_list.append(Msg("user", step_prompt, role="user"))
 
         # get response from agent
-         # 从代理获取响应
+        # 从代理获取响应
         try:
             in_prompt = self.model.format(message_list)
             res = self.model(
@@ -254,13 +286,22 @@ class SWEAgent(AgentBase):
         action = res.parsed.get("action")
 
         obs = self.prase_command(res.parsed["action"])
+        
+        # 将动作和观察结果添加到运行记忆中
+        self.running_memory.append(f"Action: {action}")
+        self.running_memory.append(f"Observation: {obs}")
+        
         self.speak(
             Msg(self.name, "\n====Observation====\n" + obs, role="assistant"),
         )
 
-        # add msg to context windows
-        # 将消息添加到上下文窗口
-        self.running_memory.append(str(action) + str(obs))
+        # # add msg to context windows
+        # # 将消息添加到上下文窗口
+        # self.running_memory.append(str(action) + str(obs))
+        
+        # 如果运行记忆超过了记忆窗口大小，移除最旧的条目
+        while len(self.running_memory) > self.memory_window * 2:
+            self.running_memory.pop(0)
         return msg_res
 
     def reply(self, x: Optional[Union[Msg, Sequence[Msg]]] = None) -> Msg:
@@ -292,37 +333,39 @@ class SWEAgent(AgentBase):
         """
         command_name = command_call["name"]
         command_args = command_call["arguments"]
+
+        # 处理内置命令
         if command_name == "exit":
             return "Current task finished, exitting."
         if command_name in ["goto", "scroll_up", "scroll_down"]:
             if command_name == "goto":
                 line = command_call["arguments"]["line_num"]
-                command_str = f"Going to {self.cur_file} line \
-                    {command_args['line_mum']}."
-                command_failed_str = f"Failed to go to {self.cur_file} \
+                command_str = f"Going to {self.cur_file} from {self.cur_line} to line  \
+                    {command_args['line_num']}."
+                command_failed_str = f"Failed to go to {self.cur_file} from {self.cur_line} to \
                     line {command_args['line_num']}"
             if command_name == "scroll_up":
                 line = self.cur_line - 100
                 if line < 0:
                     line = 0
                 command_str = (
-                    f"Scrolling up from file {self.cur_file} to line {line}."
+                    f"Scrolling up from file {self.cur_file} from {self.cur_line} to line {line}."
                 )
                 command_failed_str = (
-                    f"Failed to scroll up {self.cur_file} to line {line}"
+                    f"Failed to scroll up {self.cur_file} from {self.cur_line} to line {line}"
                 )
             if command_name == "scroll_down":
                 line = self.cur_line + 100
                 if line > count_file_lines(self.cur_file):
                     line = count_file_lines(self.cur_file)
                 command_str = (
-                    f"Scrolling down from file {self.cur_file} to line {line}."
+                    f"Scrolling down from file {self.cur_file} from {self.cur_line} to line {line}."
                 )
                 command_failed_str = (
-                    f"Failed to scrool down {self.cur_file} to line {line}"
+                    f"Failed to scrool down {self.cur_file} from {self.cur_line} to line {line}"
                 )
             read_status = read_file(self.cur_file, line, line + 100)
-            if read_status.status == "success":
+            if read_status.status == ServiceExecStatus.SUCCESS:
                 self.cur_line = line
                 obs = read_status.content
                 return f"{command_str}. Observe file content: {obs}"
@@ -342,13 +385,32 @@ class SWEAgent(AgentBase):
             return read_status.content
         if command_name == "exec_py_linting":
             return exec_py_linting(**command_args).content
-        return "No such command"
+
+        # 处理动态添加的命令
+        if command_name in self.commands_description_dict:
+            try:
+                # 获取对应的函数
+                func = self.commands_description_dict[command_name]
+                # 直接调用函数
+                result = func(**command_args)
+                # 如果结果是字符串，直接返回；否则，转换为字符串
+                return str(result) if isinstance(result, str) else str(result)
+            except Exception as e:
+                # 捕获异常，获取详细的错误信息
+                error_msg = f"Error executing command '{command_name}':\n"
+                error_msg += f"Exception: {str(e)}\n"
+                error_msg += "Traceback:\n"
+                error_msg += traceback.format_exc()
+                return error_msg
+
+        return f"No such command: {command_name}"
 
     def get_commands_prompt(self) -> None:
         """
         获取并设置命令提示。
         """
-        for name, desc in COMMANDS_DISCRIPTION_DICT.items():
+        self.commands_prompt = ""
+        for name, desc in self.commands_description_dict.items():
             self.commands_prompt += f"{name}: {desc}\n"
 
 if __name__ == "__main__":

@@ -383,9 +383,22 @@ class AgentGroups:
         # 返回最终的表头定义和标注标签定义
         return table_headers, annotate_tags
     
-    def make_data_table(self, db_path, table_header_string, annotate_tags_string, return_table_path, swe_template_path="agents/tools/swe_template/make_table.py"):
+    def make_data_table(
+        self,
+        user_requirements,
+        project_definition_input,
+        db_path,
+        table_header_string,
+        annotate_tags_string,
+        return_table_path,
+        coding_dir_path,
+        swe_template_path="agents/tools/swe_template/make_table.py"):
+        
         
         return_table_path = os.path.abspath(return_table_path)
+        
+        os.makedirs(coding_dir_path, exist_ok=True)
+        coding_dir_path = os.path.abspath(coding_dir_path)
         
         db_processor = ExcelChunkProcessor(db_path)
         with open(swe_template_path, 'r', encoding='utf-8') as f:
@@ -394,17 +407,89 @@ class AgentGroups:
         code_str = code_str.replace('<ANNOTATE_TAGS>', annotate_tags_string)
         code_str = code_str.replace('<TABLE_HEADER>', table_header_string)
         
+        coding_path = os.path.join(coding_dir_path, 'make_table.py')
+        with open(coding_path, 'w', encoding='utf-8') as f:
+            f.write(code_str)
+            
         # Initialize the Annotator
         annotator = Annotator()
+            
+        local_objects = {
+            "annotator": annotator,
+            "db_processor": db_processor, 
+            "return_table_path": return_table_path
+        }
+            
+        # 定义开发任务
+        task = f"""
+<task>
+    <description>
+        Develop a data table creation system based on the following user requirements:
+        {user_requirements}
+    </description>
+    <project_definition>
+        {project_definition_input}
+    </project_definition>
+    <objectives>
+        Thoroughly refactor and enhance the initial code located at {coding_path}
+        Implement a robust table creation mechanism
+        Populate the table with appropriate data based on the given requirements
+        Save the completed table to {return_table_path}
+    </objectives>
+    <constraints>
+        Utilize the pre-loaded table headers and long-text keyword extraction tags
+        Leverage the functions and definitions available in the initial code
+        Use the objects imported via available_objects without reloading
+    </constraints>
+    <resources>
+        Initial code template: {coding_path}
+        Return table path: {return_table_path}
+        <available_objects>
+            {chr(10).join(f'{key}' for key in local_objects.keys())}
+        </available_objects>
+    </resources>
+    
+    <instructions>
+        <instruction>Analyze the user requirements and project definition thoroughly</instruction>
+        <instruction>Review the initial code and identify areas for improvement</instruction>
+        <instruction>Implement the table creation logic, ensuring it meets all specified requirements</instruction>
+        <instruction>Utilize the provided resources efficiently, including the available local objects</instruction>
+        <instruction>Ensure proper error handling and edge case management</instruction>
+        <instruction>Optimize the code for performance and readability</instruction>
+        <instruction>Test the implementation rigorously before finalizing</instruction>
+        <instruction>Save the completed table to the specified return_table_path</instruction>
+        <instruction>Document any assumptions or design decisions made during the development process</instruction>
+    </instructions>
+</task>
+        """  # noqa
         
-        result = execute_python_code(
-            code=code_str,
-            timeout=60,
-            maximum_memory_bytes=1024*1024*1000,  # 1000 MB
-            local_objects={"annotator": annotator, "db_processor": db_processor, "return_table_path": return_table_path},
-        )
-        print("Result:")
-        print(result)
+        # 创建SWEAgent实例
+        swe_agent = SWEAgent("SWE-Agent", "kuafu3.5")
+        # 添加数据库查询方法作为命令
+        # swe_agent.add_command_func("get_all_table_headers", ExcelChunkProcessor.get_all_table_headers, instance=db_processor)
+        # swe_agent.add_command_func("execute_query", ExcelChunkProcessor.execute_query, instance=db_processor)
+        
+        # 创建任务消息
+        task_msg = Msg("user", task, role="user")
+    
+        # 让 agent 执行任务
+        response = swe_agent.reply(task_msg)
+
+        # 打印 agent 的最终响应
+        print("SWE Agent's final response:")
+        print(response.content)
+        
+        
+        
+        
+        # result = execute_python_code(
+        #     code=code_str,
+        #     timeout=60,
+        #     maximum_memory_bytes=1024*1024*1000,  # 1000 MB
+        #     local_objects=local_objects,
+        # )
+        # print("Result:")
+        # print(result)
 
 
 if __name__ == "__main__":
@@ -420,11 +505,22 @@ if __name__ == "__main__":
     )
     
     ag = AgentGroups("./agents")
-    with open("table_header.yaml", 'r', encoding='utf-8') as f:
+    with open("temp/user_requirements.txt", 'r', encoding='utf-8') as f:
+        user_requirements = f.read()
+    with open("temp/final_definition.yaml", 'r', encoding='utf-8') as f:
+        project_definition_input = f.read() 
+    with open("temp/table_header.yaml", 'r', encoding='utf-8') as f:
         table_header_string = f.read()
-    with open("annotate_tags.yaml", 'r', encoding='utf-8') as f:
+    with open("temp/annotate_tags.yaml", 'r', encoding='utf-8') as f:
         annotate_tags_string = f.read() 
-    ag.make_data_table("project_data.db", table_header_string, annotate_tags_string, os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.csv"))
+    ag.make_data_table(
+        user_requirements,
+        project_definition_input,
+        "project_data.db",
+        table_header_string,
+        annotate_tags_string,
+        "temp/result.csv",
+        "temp/coding")
     
     
     

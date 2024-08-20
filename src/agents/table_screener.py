@@ -3,7 +3,7 @@ import sys
 import pandas as pd
 from agentscope.agents import DictDialogAgent
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from tools.yaml_object_parser import MarkdownYAMLDictParser
+from agents.tools.yaml_object_parser import MarkdownYAMLDictParser
 from functools import partial
 from agentscope.message import Msg
 from agents.tools.excel_processor import ExcelChunkProcessor

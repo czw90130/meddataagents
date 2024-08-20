@@ -160,3 +160,4 @@ src/annotate_tags.yaml
 src/table_header.yaml
 src/result.csv
 gcd_algorithm.py
+src/temp/

@@ -160,6 +160,8 @@ def read_file(
         )
     except Exception as e:
         error_message = f"{e.__class__.__name__}: {e}"
+        print("Error reading file: ")
+        print(error_message)
         return ServiceResponse(
             status=ServiceExecStatus.ERROR,
             content=error_message,

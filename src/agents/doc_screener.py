@@ -4,7 +4,7 @@ from agentscope.agents import DictDialogAgent
 from functools import partial
 from agentscope.message import Msg
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from tools.yaml_object_parser import MarkdownYAMLDictParser
+from agents.tools.yaml_object_parser import MarkdownYAMLDictParser
 from agents.tools.doc_read_tools import file2text
 
 class DocScreener:

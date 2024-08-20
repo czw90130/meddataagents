@@ -503,18 +503,6 @@ class ExcelChunkProcessor:
             - 'summary': 表的摘要信息
             - 'record_count': 每个表中的总记录数。
 
-        示例:
-        >>> processor = ExcelChunkProcessor()
-        >>> all_headers = processor.get_all_table_headers()
-        >>> for table, info in all_headers.items():
-        ...     print(f"Table: {table}")
-        ...     print(f"File Path: {info['file_path']}")
-        ...     print(f"Sheet Name: {info['sheet_name']}")
-        ...     print(f"Columns: {info['columns']}")
-        ...     print(f"Summary: {info['summary']}")
-        ...     print(f"Record Count: {info['record_count']}")
-        ...     print("---")
-
         注意:
         - 返回的字典可能会很大，取决于已处理的文件数量。
         - 对于CSV文件，'sheet_name'值将为None。

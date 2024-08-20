@@ -10,14 +10,15 @@ from pydantic import BaseModel
 
 from agentscope.exception import (
     TagNotFoundError,
-    JsonParsingError,
-    JsonTypeError,
+    ResponseParsingError,
     RequiredFieldNotFoundError,
 )
 from agentscope.models import ModelResponse
 from agentscope.parsers import ParserBase
 from agentscope.parsers.parser_base import DictFilterMixin
 from agentscope.utils.tools import _join_str_with_comma_and
+from agentscope.agents import DictDialogAgent
+from agentscope.message import Msg
 
 
 class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
@@ -96,6 +97,36 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         "</yaml>\n"
     )
     """带有模式的YAML对象格式指令。"""
+    
+    _fix_yaml_instruction = (
+        "Fix the YAML format in the raw_response:\n",
+        "<raw_response>\n{raw_response}\n</raw_response>\n"
+        "<error>\n{error}\n</error>\n"
+         "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
+        "1. For short, simple string values, you can write them directly.\n"
+        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
+        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
+        "   - Use '>' for long text that can be wrapped.\n"
+        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
+        "4. Use '\\n' for line breaks within quoted strings.\n"
+        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
+        "6. Use \"'\" to represent single quotes within quoted strings.\n"
+        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
+        "Example:\n"
+        "<yaml>\n"
+        "description: |\n"
+        "  This is a multi-line description.\n"
+        "  It preserves line breaks.\n"
+        "summary: >\n"
+        "  This is a long summary that can be\n"
+        "  wrapped across multiple lines.\n"
+        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
+        "with_linebreaks: \"This text has\\nline breaks.\"\n"
+        "with_colon: \"This string contains a colon: be careful!\"\n"
+        "time: \"12:30\"\n"
+        "</yaml>\n"
+    )
+    """修复YAML对象格式指令。"""
 
     required_keys: List[str]
     """YAML字典对象中必需的键列表。如果响应中缺少任何必需的键，将引发RequiredFieldNotFoundError。"""
@@ -107,6 +138,7 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         keys_to_memory: Optional[Union[str, bool, Sequence[str]]] = True,
         keys_to_content: Optional[Union[str, bool, Sequence[str]]] = True,
         keys_to_metadata: Optional[Union[str, bool, Sequence[str]]] = False,
+        fix_model_config_name=None
     ) -> None:
         """
         初始化解析器。
@@ -166,6 +198,37 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
 
         self.required_keys = required_keys or []
         
+        # 修复YAML对象的Agent
+        if fix_model_config_name is not None:
+            self.fix_agent = DictDialogAgent(
+                name="DataArchitect",
+                sys_prompt="You are a YAML object fixer.",
+                model_config_name=fix_model_config_name,
+                use_memory=False
+            )
+        else:
+            self.fix_agent = None
+        
+    def _fix_raw_response(self, raw_response: str, error: str) -> str:
+        """修复YAML对象格式"""
+        if self.fix_agent is None:
+            raise ValueError("fix_agent is None")
+        
+        msg = Msg(name="Moderator", role="assistant", content=self._fix_yaml_instruction.format(raw_response=raw_response, error=error))
+        fixed_response = self.fix_agent(msg).content
+        
+        # 提取修复后的YAML内容
+        try:
+            fixed_yaml = self._extract_first_content_by_tag(
+                ModelResponse(text=fixed_response),
+                self.tag_begin,
+                self.tag_end,
+            )
+        except TagNotFoundError:
+            fixed_yaml = fixed_response  # 如果没有标签，假设整个响应就是YAML
+
+        return fixed_yaml
+    
     def _dict_to_yaml_with_multiline(self, d):
         """将字典转换为YAML字符串，对长字符串使用'|'语法"""
         def represent_str_with_style(dumper, data):
@@ -201,88 +264,85 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
             )
 
     def parse(self, response: ModelResponse) -> ModelResponse:
-        """
-        将响应的文本字段解析为YAML字典对象，将其存储在响应对象的parsed字段中，
-        并检查是否存在必需的键。
-        """
         extract_text = None
         used_tags = None
+        raw_response = None
 
-        # 首先尝试使用 <yaml> </yaml> 标签
-        try:
-            extract_text = self._extract_first_content_by_tag(
-                response,
-                self.tag_begin,
-                self.tag_end,
-            )
-            used_tags = (self.tag_begin, self.tag_end)
-        except TagNotFoundError:
-            # 如果找不到 <yaml> </yaml> 标签，尝试 ```yaml ``` 标签
+        # 尝试提取YAML内容
+        for tag_pair in [(self.tag_begin, self.tag_end), (self.tag_begin2, self.tag_end2)]:
             try:
                 extract_text = self._extract_first_content_by_tag(
                     response,
-                    self.tag_begin2,
-                    self.tag_end2,
+                    tag_pair[0],
+                    tag_pair[1],
                 )
-                used_tags = (self.tag_begin2, self.tag_end2)
+                used_tags = tag_pair
+                break
             except TagNotFoundError:
-                # 如果两种标签都找不到，尝试修复缺失的标签
-                try:
-                    modified_text = response.text
-                    if self.tag_begin not in modified_text:
-                        modified_text = self.tag_begin + modified_text
-                    if self.tag_end not in modified_text:
-                        modified_text = modified_text + self.tag_end
+                continue
 
-                    extract_text = self._extract_first_content_by_tag(
-                        ModelResponse(text=modified_text),
-                        self.tag_begin,
-                        self.tag_end,
-                    )
-                    used_tags = (self.tag_begin, self.tag_end)
-                    logger.debug("通过手动添加XML标签修复了缺失的标签。")
-                except TagNotFoundError as e:
-                    # 如果所有尝试都失败，则引发原始错误
-                    raise e from None
+        # 如果没有找到标签，尝试修复缺失的标签
+        if extract_text is None:
+            try:
+                modified_text = self.tag_begin + response.text + self.tag_end
+                extract_text = self._extract_first_content_by_tag(
+                    ModelResponse(text=modified_text),
+                    self.tag_begin,
+                    self.tag_end,
+                )
+                used_tags = (self.tag_begin, self.tag_end)
+                logger.debug("通过手动添加XML标签修复了缺失的标签。")
+            except TagNotFoundError as e:
+                raise e from None
 
-        # 将内容解析为YAML对象
+        raw_response = f"{used_tags[0]}{extract_text}{used_tags[1]}"
+
+        # 尝试解析YAML，如果失败则尝试修复
         try:
             parsed_yaml = yaml.safe_load(extract_text)
-            # 后处理解析后的内容
-            response.parsed = parsed_yaml
         except yaml.YAMLError as e:
-            raw_response = f"{used_tags[0]}{extract_text}{used_tags[1]}"
-            raise JsonParsingError(
-                f"{used_tags[0]} 和 {used_tags[1]} 之间的内容必须是一个YAML对象。"
-                f'解析 "{raw_response}" 时发生错误: {e}',
-                f'解析器提示词：\n {self.format_instruction}',
-                raw_response=raw_response,
-            ) from None
+            if self.fix_agent is not None:
+                logger.warning(f"YAML解析失败，尝试修复。错误: {e}")
+                fixed_yaml = self._fix_raw_response(raw_response, str(e))
+                try:
+                    parsed_yaml = yaml.safe_load(fixed_yaml)
+                    logger.info("YAML修复成功。")
+                except yaml.YAMLError as e2:
+                    raise ResponseParsingError(
+                        f"修复后的YAML仍然无法解析。错误: {e2}",
+                        f'解析器提示词：\n {self.format_instruction}',
+                        raw_response=raw_response,
+                    ) from None
+            else:
+                raise ResponseParsingError(
+                    f"{used_tags[0]} 和 {used_tags[1]} 之间的内容必须是一个YAML对象。"
+                    f'解析 "{raw_response}" 时发生错误: {e}',
+                    f'解析器提示词：\n {self.format_instruction}',
+                    raw_response=raw_response,
+                ) from None
 
-        if not isinstance(response.parsed, dict):
-            # 如果不是字典，则引发错误
-            raise JsonTypeError(
-                f"需要YAML字典对象，但得到了 {type(response.parsed)}。",
+        # 检查解析后的内容是否为字典
+        if not isinstance(parsed_yaml, dict):
+            raise ResponseParsingError(
+                f"需要YAML字典对象，但得到了 {type(parsed_yaml)}。",
                 response.text,
             )
+
+        response.parsed = parsed_yaml
 
         # 使用Pydantic进行需求检查
         if self.pydantic_class is not None:
             try:
                 response.parsed = dict(self.pydantic_class(**response.parsed))
             except Exception as e:
-                raise JsonParsingError(
+                raise ResponseParsingError(
                     message=str(e),
                     raw_response=response.text,
                 ) from None
 
         # 检查是否存在必需的键
-        keys_missing = []
-        for key in self.required_keys:
-            if key not in response.parsed:
-                keys_missing.append(key)
-
-        if len(keys_missing) != 0:
+        keys_missing = [key for key in self.required_keys if key not in response.parsed]
+        if keys_missing:
             raise RequiredFieldNotFoundError(
                 f"YAML字典对象中缺少必需的"
                 f"字段{'' if len(keys_missing)==1 else 's'} "
