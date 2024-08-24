@@ -9,11 +9,7 @@ or the SWE-agent implementation from Open-Devin.
 SWE-agent非常依赖于这些提示来完成任务。
 """
 
-# 定义一个常量,表示每次显示的文件内容行数
-WINDOW = 100
-
-
-def get_system_prompt(command_prompt: str) -> str:
+def get_system_prompt(command_prompt: str, window_size: int) -> str:
     """
     获取SWE-agent的系统提示。
     Get the system prompt for SWE-agent.
@@ -25,8 +21,6 @@ def get_system_prompt(command_prompt: str) -> str:
     str: 完整的系统提示字符串
     """
     
-    # 这里是一个多行字符串,定义了系统提示的内容
-    # 包括设置、可用命令、响应格式等信息
     return f"""
 <system_prompt>
 <role_definition>
@@ -37,7 +31,7 @@ You have access to a variety of tools and commands that you can use to help you 
 
 <environment_description>
 You're working directly in the command line with a special interface.
-The special interface consists of a file editor that shows you {WINDOW} lines of a file at a time.
+The special interface consists of a file editor that shows you {window_size} lines of a file at a time.
 </environment_description>
 
 <available_commands>
@@ -51,11 +45,13 @@ Indentation is important and code that is not indented correctly will fail and r
 If you'd like to issue two commands at once, PLEASE DO NOT DO THAT! Please instead first submit just the first command, and then after receiving a response you'll be able to issue the second command.
 You're free to use any other bash commands you want (e.g. find, grep, cat, ls) in addition to the special commands listed above.
 The environment does NOT support interactive session commands (e.g. vim, python), so please do not invoke them.
+When generating code, ensure it is complete and executable. Do not abbreviate or omit any part of variable contents, especially functions and strings.
+Avoid excessive editing. Know when to stop and consider the task complete.
 </important_notes>
 
 {RESPONSE_FORMAT_PROMPT}
 </system_prompt>
-  """  # noqa
+"""  # noqa
 
 # 定义响应格式提示,指导agent如何格式化输出
 RESPONSE_FORMAT_PROMPT = """
@@ -100,6 +96,7 @@ Your Response should always be a valid YAML string that can be parsed.
 - Quote strings with special characters.
 - Use '\\n' for line breaks in quotes.
 - Use '\\"' for quotes and "'" for single quotes in strings.
+- Ensure all code snippets are complete and executable, without any omissions.
 
 Example of special character handling:
 <yaml>
@@ -115,6 +112,7 @@ def get_step_prompt(
     file: str,
     line: int,
     current_file_content: str,
+    window_size: int
 ) -> str:
     """
     获取SWE-agent的每一步提示。
@@ -130,8 +128,6 @@ def get_step_prompt(
     str: 完整的步骤提示字符串
     """
     
-    # 这里是一个多行字符串,定义了每一步的提示内容
-    # 包括任务描述、当前文件状态、可用命令、注意事项等
     return f"""
 <step_prompt>
     <task_description>
@@ -157,10 +153,12 @@ def get_step_prompt(
 
     <instructions>
     If you run a command and it doesn't work, try running a different command. A command that did not work once will not work the second time unless you modify it!
-    If you open a file and need to get to an area around a specific line that is not in the first 100 lines, say line 583, don't just use the scroll_down command multiple times. Instead, use the goto 583 command. It's much quicker.
+    If you open a file and need to get to an area around a specific line that is not in the first {window_size} lines, say line 583, don't just use the scroll_down command multiple times. Instead, use the goto 583 command. It's much quicker.
     Always make sure to look at the currently open file and the current working directory (which appears right after the currently open file). The currently open file might be in a different directory!
     When editing files, it is easy to accidentally specify a wrong line number or to write code with incorrect indentation. Always check the code after you issue an edit to make sure that it reflects what you wanted to accomplish. If it didn't, issue another command to fix it.
     After modifying python files, you can run `exec_py_linting` to check for errors. If there are errors, fix them and repeat the previous step.
+    When generating or modifying code, ensure it is complete and executable. Do not abbreviate or omit any part of variable contents, especially functions and strings.
+    Avoid excessive editing. Once you've completed the task or made the necessary changes, consider the task complete and move on.
     </instructions>
 
     <important_note>
@@ -170,6 +168,7 @@ def get_step_prompt(
 
     <response_format_reminder>
     You should always notice your response format and respond with a YAML object as specified in the system prompt.
+    Ensure all code snippets in your response are complete and executable, without any omissions.
     </response_format_reminder>
 </step_prompt>
 """  # noqa
@@ -197,5 +196,7 @@ def get_context_prompt(memory: list, window: int) -> str:
     res += "======= End Actions =======\n"
     res += "Use these memories to provide additional context to \
     the problem you are solving.\nRemember that you have already \
-    completed these steps so you do not need to perform them again."
+    completed these steps so you do not need to perform them again. \
+    Also, keep in mind that any code you've generated or modified \
+    in these steps should be complete and executable."
     return res

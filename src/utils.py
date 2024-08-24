@@ -417,7 +417,9 @@ class AgentGroups:
         local_objects = {
             "annotator": annotator,
             "db_processor": db_processor, 
-            "return_table_path": return_table_path
+            "return_table_path": return_table_path,
+            "annotate_tags_string": annotate_tags_string,
+            "table_header_string": table_header_string,
         }
             
         # 定义开发任务
@@ -425,11 +427,17 @@ class AgentGroups:
 <task>
     <description>
         Develop a data table creation system based on the following user requirements:
-        {user_requirements}
+{user_requirements}
     </description>
     <project_definition>
-        {project_definition_input}
+{project_definition_input}
     </project_definition>
+    <annotate_tags>
+{annotate_tags_string}
+    </annotate_tags>
+    <table_header>
+{table_header_string}
+    </table_header>
     <objectives>
         Thoroughly refactor and enhance the initial code located at {coding_path}
         Implement a robust table creation mechanism
@@ -450,15 +458,15 @@ class AgentGroups:
     </resources>
     
     <instructions>
-        <instruction>Analyze the user requirements and project definition thoroughly</instruction>
-        <instruction>Review the initial code and identify areas for improvement</instruction>
-        <instruction>Implement the table creation logic, ensuring it meets all specified requirements</instruction>
-        <instruction>Utilize the provided resources efficiently, including the available local objects</instruction>
-        <instruction>Ensure proper error handling and edge case management</instruction>
-        <instruction>Optimize the code for performance and readability</instruction>
-        <instruction>Test the implementation rigorously before finalizing</instruction>
-        <instruction>Save the completed table to the specified return_table_path</instruction>
-        <instruction>Document any assumptions or design decisions made during the development process</instruction>
+        Analyze the user requirements and project definition thoroughly
+        Review the initial code and identify areas for improvement
+        Implement the table creation logic, ensuring it meets all specified requirements
+        Utilize the provided resources efficiently, including the available local objects
+        Ensure proper error handling and edge case management
+        Optimize the code for performance and readability
+        Test the implementation rigorously before finalizing
+        Save the completed table to the specified return_table_path
+        Document any assumptions or design decisions made during the development process
     </instructions>
 </task>
         """  # noqa
@@ -466,8 +474,8 @@ class AgentGroups:
         # 创建SWEAgent实例
         swe_agent = SWEAgent("SWE-Agent", "kuafu3.5")
         # 添加数据库查询方法作为命令
-        # swe_agent.add_command_func("get_all_table_headers", ExcelChunkProcessor.get_all_table_headers, instance=db_processor)
-        # swe_agent.add_command_func("execute_query", ExcelChunkProcessor.execute_query, instance=db_processor)
+        swe_agent.add_command_func("get_all_table_headers", ExcelChunkProcessor.get_all_table_headers, instance=db_processor)
+        swe_agent.add_command_func("execute_query", ExcelChunkProcessor.execute_query, instance=db_processor)
         
         # 创建任务消息
         task_msg = Msg("user", task, role="user")

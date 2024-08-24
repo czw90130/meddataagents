@@ -70,28 +70,6 @@ def prepare_func_prompt(function: Callable) -> str:
     func_prompt = "\n".join(args_list)
     return func_prompt
 
-# 命令描述字典
-# "exit": "exit: 当前任务完成时执行，不需要参数",
-# "scroll_up": "scroll_up: 向上滚动当前打开的文件，将显示当前行以上的100行，不需要参数",
-# "scroll_down": "scroll_down: 向下滚动当前打开的文件，将显示当前行以下的100行，不需要参数",
-# "goto": "goto: 直接跳转到指定行号<line_num>并显示其下方的100行。\n       line_num (int): 要跳转到的行号。",
-COMMANDS_DISCRIPTION_DICT = {
-    "exit": "exit: Executed when the current task is complete, takes no arguments",  # noqa
-    "scroll_up": "scroll_up: Scrolls up the current open file, will scroll up and show you the 100 lines above your current lines, takes no arguments",  # noqa
-    "scroll_down": "scroll_down: Scrolls down the current open file, will scroll down and show you the 100 lines below your current lines'takes no arguments",  # noqa
-    "goto": "goto: This will take you directly to the line <line_num> and show you the 100 lines below it. \n       line_num (int): The line number to go to.",  # noqa
-}
-
-# 为其他命令添加描述
-COMMANDS_DISCRIPTION_DICT["write_file"] = prepare_func_prompt(write_file)
-COMMANDS_DISCRIPTION_DICT["read_file"] = prepare_func_prompt(read_file)
-COMMANDS_DISCRIPTION_DICT["execute_shell_command"] = prepare_func_prompt(
-    execute_shell_command,
-)
-COMMANDS_DISCRIPTION_DICT["exec_py_linting"] = prepare_func_prompt(
-    exec_py_linting,
-)
-
 # 错误信息提示模板
 ERROR_INFO_PROMPT = """
 <error_report>
@@ -123,7 +101,7 @@ def count_file_lines(file_path: str) -> int:
     返回:
     int: 文件的总行数。
     """
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         lines = file.readlines()
     return len(lines)
 
@@ -138,6 +116,7 @@ class SWEAgent(AgentBase):
         self,
         name: str,
         model_config_name: str,
+        window_size: int = 200
     ) -> None:
         """
         初始化SWEAgent。
@@ -151,7 +130,8 @@ class SWEAgent(AgentBase):
             model_config_name=model_config_name,
             use_memory=True,
         )
-
+        self.window_size = window_size
+        
         self.memory_window = 6  # 记忆窗口大小
         self.max_retries = 2  # 最大重试次数
         self.running_memory: List[str] = []  # 运行时记忆
@@ -165,9 +145,9 @@ class SWEAgent(AgentBase):
         
         self.commands_description_dict = {
             "exit": "exit: Executed when the current task is complete, takes no arguments",
-            "scroll_up": "scroll_up: Scrolls up the current open file, will scroll up and show you the 100 lines above your current lines, takes no arguments",
-            "scroll_down": "scroll_down: Scrolls down the current open file, will scroll down and show you the 100 lines below your current lines'takes no arguments",
-            "goto": "goto: This will take you directly to the line <line_num> and show you the 100 lines below it. \n       line_num (int): The line number to go to.",
+            f"scroll_up": "scroll_up: Scrolls up the current open file, will scroll up and show you the {self.window_size} lines above your current lines, takes no arguments",
+            f"scroll_down": "scroll_down: Scrolls down the current open file, will scroll down and show you the {self.window_size} lines below your current lines'takes no arguments",
+            f"goto": "goto: This will take you directly to the line <line_num> and show you the {self.window_size} lines below it. \n       line_num (int): The line number to go to.",
         }
 
         # 为其他命令添加描述
@@ -220,7 +200,7 @@ class SWEAgent(AgentBase):
 
         # construct system prompt
         # 构造系统提示
-        system_prompt = get_system_prompt(self.commands_prompt)
+        system_prompt = get_system_prompt(self.commands_prompt, self.window_size)
         message_list.append(Msg("user", system_prompt, role="system"))
 
         # construct context prompt, i.e. previous actions
@@ -239,6 +219,7 @@ class SWEAgent(AgentBase):
             self.cur_file,
             self.cur_line,
             self.cur_file_content,
+            self.window_size,
         )
         message_list.append(Msg("user", step_prompt, role="user"))
 

@@ -3,14 +3,10 @@ import yaml
 from typing import Dict, Any
 
 # Keep the original string definitions
-annotate_tags_string = """
-<ANNOTATE_TAGS>
-"""
+
 annotate_tags = yaml.safe_load(annotate_tags_string)
 
-table_header_string = """
-<TABLE_HEADER>
-"""
+
 table_header = yaml.safe_load(table_header_string)
 
 from typing import Dict, Any, Optional
@@ -143,4 +139,4 @@ pdm = PatientDataManager(table_header)
 # Save to CSV
 pdm.save_to_csv(return_table_path)
 
-
+#EOF
