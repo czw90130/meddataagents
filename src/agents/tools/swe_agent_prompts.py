@@ -124,6 +124,8 @@ def get_step_prompt(
     - Use 'exec_py_linting' to check for errors in Python files.
     - Ensure generated or modified code is complete and executable.
     - Avoid excessive editing; know when to consider a task complete.
+    - Avoid repeating the same command multiple times in a row.
+    - If you find yourself stuck, try a different approach or consider completing the task.
     </instructions>
 
     <important_note>

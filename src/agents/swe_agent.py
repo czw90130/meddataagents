@@ -147,7 +147,7 @@ class SWEAgent(AgentBase):
         self.parser = MarkdownYAMLDictParser(fix_model_config_name=model_config_name)  # YAML解析器
         
         self.commands_description_dict = {
-            "exit": "exit: Executed when the current task is complete, takes no arguments",
+            "exit": "exit: Executed when the current task is complete. Arguments:\n    force (bool, optional): If True, exit without linting. If False or not provided, perform linting before exit.",
             f"scroll_up": "scroll_up: Scrolls up the current open file, will scroll up and show you the {self.window_size} lines above your current lines, takes no arguments",
             f"scroll_down": "scroll_down: Scrolls down the current open file, will scroll down and show you the {self.window_size} lines below your current lines'takes no arguments",
             f"goto": "goto: This will take you directly to the line <line_num> and show you the {self.window_size} lines below it. \n       line_num (int): The line number to go to.",
@@ -164,7 +164,11 @@ class SWEAgent(AgentBase):
         )
         
         self.get_commands_prompt()  # 获取命令提示
-        
+
+        self.last_executed_command = None
+        self.repeated_command_count = 0
+        self.max_repeated_commands = 5  # 允许重复执行同一命令的最大次数
+
     def add_command_func(self, name: str, func: Callable, instance=None) -> None:
         if instance:
             # 如果提供了实例,创建一个绑定方法
@@ -269,6 +273,19 @@ class SWEAgent(AgentBase):
         # 解析并执行动作
         action = res.parsed.get("action")
 
+        # 检查是否重复执行相同的命令
+        if action == self.last_executed_command:
+            self.repeated_command_count += 1
+            if self.repeated_command_count >= self.max_repeated_commands:
+                # 如果重复次数超过限制，强制执行 exit 命令
+                action = {"name": "exit", "arguments": {"force": False}}
+                obs = self.parse_command(action)
+                return Msg(self.name, {"action": action, "observation": obs}, role="assistant"), obs
+        else:
+            self.repeated_command_count = 0
+        
+        self.last_executed_command = action
+        
         obs = self.parse_command(res.parsed["action"])
         
         # 将动作和观察结果添加到运行记忆中
@@ -285,7 +302,7 @@ class SWEAgent(AgentBase):
         # 如果运行记忆超过了记忆窗口大小，移除最旧的条目
         while len(self.running_memory) > self.memory_window * 2:
             self.running_memory.pop(0)
-        return msg_res
+        return msg_res, obs
 
     def reply(self, x: Optional[Union[Msg, Sequence[Msg]]] = None) -> Msg:
         """
@@ -297,11 +314,17 @@ class SWEAgent(AgentBase):
         返回:
         Msg: 最终的回复消息。
         """
-        action_name = None
         self.main_goal = x.content
-        while not action_name == "exit":
-            msg = self.step()
+        self.last_executed_command = None  # 重置最后执行的命令
+        self.repeated_command_count = 0  # 重置重复计数
+        while True:
+            msg, obs = self.step()
             action_name = msg.content["action"]["name"]
+            if action_name == "exit":
+                if "<status>continue</status>" in obs:
+                    continue
+                else:
+                    break
         return msg
 
     def parse_command(self, command_call: dict) -> str:
@@ -319,117 +342,147 @@ class SWEAgent(AgentBase):
 
         try:
             if command_name == "exit":
-                return "<command_result><status>success</status><message>Current task finished, exiting.</message></command_result>"
+                force = command_args.get("force", False)
+                if not force:
+                    # 执行 linting
+                    lint_result = exec_py_linting(self.cur_file)
+                    if lint_result.status == ServiceExecStatus.SUCCESS:
+                        if "No lint errors found." in lint_result.content or "" == lint_result.content.strip():
+                            return ("<cmd_result><status>exit</status><message>Linting passed. Exiting.</message></cmd_result>")
+                        else:
+                            return (
+                            "<cmd_result>\n"
+                            "    <status>continue</status>\n"
+                            "    <message>Linting failed. Please fix the following issues before exiting:</message>\n"
+                            f"    <lint_output>{lint_result.content}</lint_output>\n"
+                            "</cmd_result>\n"
+                        )
+                    else:
+                        return (
+                        "<cmd_result>\n"
+                        "    <status>error</status>\n"
+                        f"    <message>Error during linting: {lint_result.content}</message>\n"
+                        "</cmd_result>\n"
+                        )
+                else:
+                    return ("<cmd_result><status>exit</status><message>Force exit. Exiting without linting.</message></cmd_result>")
 
             if command_name in ["goto", "scroll_up", "scroll_down"]:
-                if command_name == "goto":
-                    line = command_args["line_num"]
-                    command_str = f"Going to {self.cur_file} from {self.cur_line} to line {line}."
-                elif command_name == "scroll_up":
+                total_lines = count_file_lines(self.cur_file)
+                if command_name == "scroll_up":
+                    if self.cur_line == 0:
+                        return "<cmd_result><status>error</status><message>Already at the top of the file.</message></cmd_result>"
                     line = max(0, self.cur_line - self.window_size)
-                    command_str = f"Scrolling up from file {self.cur_file} from {self.cur_line} to line {line}."
-                else:  # scroll_down
-                    line = min(count_file_lines(self.cur_file), self.cur_line + self.window_size)
-                    command_str = f"Scrolling down from file {self.cur_file} from {self.cur_line} to line {line}."
+                    command_str = f"Scrolling up from file {self.cur_file} from line {self.cur_line} to line {line}."
+                elif command_name == "scroll_down":
+                    if self.cur_line >= total_lines - self.window_size:
+                        return "<cmd_result><status>error</status><message>Already at the bottom of the file.</message></cmd_result>"
+                    line = min(total_lines, self.cur_line + self.window_size)
+                    command_str = f"Scrolling down from file {self.cur_file} from line {self.cur_line} to line {line}."
+                else:  # goto
+                    line = command_args["line_num"]
+                    if line < 0 or line >= total_lines:
+                        return f"<cmd_result><status>error</status><message>Invalid line number. File has {total_lines} lines.</message></cmd_result>"
+                    command_str = f"Going to {self.cur_file} from line {self.cur_line} to line {line}."
 
                 read_status = read_file(self.cur_file, line, line + self.window_size)
                 if read_status.status == ServiceExecStatus.SUCCESS:
                     self.cur_line = line
-                    return f"""
-                    <command_result>
-                        <status>success</status>
-                        <action>{command_str}</action>
-                        <file_content>
-                            {read_status.content}
-                        </file_content>
-                    </command_result>
-                    """
+                    return (
+                        "<cmd_result>\n"
+                        "    <status>success</status>\n"
+                        f"    <action>{command_str}</action>\n"
+                        "    <file_content>\n"
+                        f"        {read_status.content}\n"
+                        "    </file_content>\n"
+                        "</cmd_result>\n"
+                    )
                 else:
-                    return f"""
-                    <command_result>
-                        <status>error</status>
-                        <message>Failed to {command_name} {self.cur_file} from {self.cur_line} to line {line}</message>
-                    </command_result>
-                    """
+                    return (
+                        "<cmd_result>\n"
+                        "    <status>error</status>\n"
+                        f"    <message>Failed to {command_name} {self.cur_file} from {self.cur_line} to line {line}</message>\n"
+                        "</cmd_result>\n"
+                    )
 
             if command_name == "execute_shell_command":
                 result = execute_shell_command(**command_args).content
-                return f"""
-                <command_result>
-                    <status>success</status>
-                    <shell_output>
-                        {result}
-                    </shell_output>
-                </command_result>
-                """
+                return (
+                "<cmd_result>\n"
+                "    <status>success</status>\n"
+                "    <shell_output>\n"
+                f"        {result}\n"
+                "    </shell_output>\n"
+                "</cmd_result>\n"
+                )
 
             if command_name == "write_file":
                 self.cur_file = command_args["file_path"]
                 self.cur_line = command_args.get("start_line", 0)
                 write_status = write_file(**command_args)
-                return f"""
-                <command_result>
-                    <status>{'success' if write_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>
-                    <message>{write_status.content}</message>
-                </command_result>
-                """
+                return (
+                "<cmd_result>\n"
+                f"    <status>{'success' if write_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>\n"
+                f"    <message>{write_status.content}</message>\n"
+                "</cmd_result>\n"
+                )
 
             if command_name == "read_file":
                 self.cur_file = command_args["file_path"]
                 self.cur_line = command_args.get("start_line", 0)
                 read_status = read_file(**command_args)
-                return f"""
-                <command_result>
-                    <status>{'success' if read_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>
-                    <file_content>
-                        {read_status.content}
-                    </file_content>
-                </command_result>
-                """
+                return (
+                "<cmd_result>\n"
+                f"    <status>{'success' if read_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>\n"
+                "    <file_content>\n"
+                f"        {read_status.content}\n"
+                "    </file_content>\n"
+                "</cmd_result>\n"
+                )
 
             if command_name == "exec_py_linting":
                 lint_result = exec_py_linting(**command_args).content
-                return f"""
-                <command_result>
-                    <status>success</status>
-                    <lint_output>
-                        {lint_result}
-                    </lint_output>
-                </command_result>
-                """
+                return (
+                "<cmd_result>\n"
+                "    <status>success</status>\n"
+                "    <lint_output>\n"
+                f"        {lint_result}\n"
+                "    </lint_output>\n"
+                "</cmd_result>\n"
+                )
 
             if command_name in self.commands_description_dict:
                 func = self.commands_description_dict[command_name]
                 result = func(**command_args)
-                return f"""
-                <command_result>
-                    <status>success</status>
-                    <output>
-                        {str(result)}
-                    </output>
-                </command_result>
-                """
+                return (
+                "<cmd_result>\n"
+                "    <status>success</status>\n"
+                "    <output>\n"
+                f"        {str(result)}\n"
+                "    </output>\n"
+                "</cmd_result>\n"
+                )
 
-            return f"""
-            <command_result>
-                <status>error</status>
-                <message>No such command: {command_name}</message>
-            </command_result>
-            """
+            return (
+            "<cmd_result>\n"
+            "    <status>error</status>\n"
+            f"    <message>No such command: {command_name}</message>\n"
+            "</cmd_result>\n"
+            )
 
         except Exception as e:
             error_msg = f"Error executing command '{command_name}':\n"
             error_msg += f"Exception: {str(e)}\n"
             error_msg += "Traceback:\n"
             error_msg += traceback.format_exc()
-            return f"""
-            <command_result>
-                <status>error</status>
-                <error_details>
-                    {error_msg}
-                </error_details>
-            </command_result>
-            """
+            return (
+                "<cmd_result>\n"
+                "    <status>error</status>\n"
+                "    <error_details>\n"
+                f"        {error_msg}\n"
+                "    </error_details>\n"
+                "</cmd_result>\n"
+            )
 
     def get_commands_prompt(self) -> None:
         """
@@ -453,29 +506,29 @@ if __name__ == "__main__":
 
     # 定义 GCD 算法开发任务
     task = """
-    <task>
-        <description>
-            Develop a Python script that implements the Euclidean algorithm to find the Greatest Common Divisor (GCD) of two numbers.
-            Save this script as 'gcd_algorithm.py' in the current directory.
-        </description>
-        <requirements>
-            1. Implement the GCD function using the Euclidean algorithm.
-            2. The function should take two positive integers as input.
-            3. Include proper error handling for invalid inputs (e.g., negative numbers or non-integers).
-            4. Add comments to explain the algorithm and important steps.
-            5. Include a main section that demonstrates the usage of the GCD function with at least two examples.
-        </requirements>
-        <steps>
-            1. Create a new file named 'gcd_algorithm.py'
-            2. Implement the GCD function using the Euclidean algorithm
-            3. Add error handling and input validation
-            4. Write comments to explain the code
-            5. Create a main section with example usage
-            6. Save the file
-            7. Execute the Python script to verify it works
-        </steps>
-    </task>
-    """
+<task>
+    <description>
+        Develop a Python script that implements the Euclidean algorithm to find the Greatest Common Divisor (GCD) of two numbers.
+        Save this script as 'gcd_algorithm.py' in the current directory.
+    </description>
+    <requirements>
+        1. Implement the GCD function using the Euclidean algorithm.
+        2. The function should take two positive integers as input.
+        3. Include proper error handling for invalid inputs (e.g., negative numbers or non-integers).
+        4. Add comments to explain the algorithm and important steps.
+        5. Include a main section that demonstrates the usage of the GCD function with at least two examples.
+    </requirements>
+    <steps>
+        1. Create a new file named 'gcd_algorithm.py'
+        2. Implement the GCD function using the Euclidean algorithm
+        3. Add error handling and input validation
+        4. Write comments to explain the code
+        5. Create a main section with example usage
+        6. Save the file
+        7. Execute the Python script to verify it works
+    </steps>
+</task>
+"""
 
     # 创建任务消息
     task_msg = Msg("user", task, role="user")

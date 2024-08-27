@@ -32,34 +32,30 @@ def exec_py_linting(file_path: str) -> ServiceResponse:
         result = subprocess.run(
             command,
             shell=True,
-            check=True,
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        # 如果执行成功，返回输出结果或"未发现代码质量问题"的消息
-        return ServiceResponse(
-            status=ServiceExecStatus.SUCCESS,
-            content=result.stdout.strip()
-            if result.stdout
-            else "No lint errors found.",
-        )
-    except subprocess.CalledProcessError as e:  
-        # 如果执行过程中出现错误，返回错误信息
-        error_message = (
-            e.stderr.strip()
-            if e.stderr
-            else "An error occurred while linting the file."
-        )
-        return ServiceResponse(
-            status=ServiceExecStatus.ERROR,
-            content=error_message,
-        )
+        
+        if result.returncode == 0:
+            # 如果执行成功且没有发现问题
+            return ServiceResponse(
+                status=ServiceExecStatus.SUCCESS,
+                content="No lint errors found.",
+            )
+        else:
+            # 如果发现了lint问题
+            error_output = result.stdout.strip() or result.stderr.strip()
+            return ServiceResponse(
+                status=ServiceExecStatus.ERROR,
+                content=f"Linting issues found:\n{error_output}",
+            )
     except Exception as e:
         # 捕获其他可能的异常，并返回错误信息
         return ServiceResponse(
             status=ServiceExecStatus.ERROR,
-            content=str(e),
+            content=f"An error occurred while linting the file:\n {str(e)}",
         )
 
 
@@ -81,17 +77,17 @@ def write_file(
     try:
         # 确定文件打开模式
         mode = "w" if not os.path.exists(file_path) else "r+"
-        # 将内容分割成行
-        insert = content.split("\n")
+        # 将内容分割成行，保留换行符
+        insert = content.splitlines(True)
         with open(file_path, mode, encoding="utf-8") as file:
             if mode != "w":
                 # 如果文件已存在，读取所有行
                 all_lines = file.readlines()
                 # 构建新的文件内容
-                new_file = [""] if start_line == 0 else all_lines[:start_line]
-                new_file += [i + "\n" for i in insert]
-                last_line = end_line + 1
-                new_file += [""] if end_line == -1 else all_lines[last_line:]
+                new_file = all_lines[:start_line]
+                new_file += insert
+                if end_line != -1:
+                    new_file += all_lines[end_line + 1:]
             else:
                 # 如果是新文件，直接使用插入的内容
                 new_file = insert
@@ -100,9 +96,10 @@ def write_file(
             file.seek(0)
             file.writelines(new_file)
             file.truncate()
+            
             # 构建操作描述
-            obs = f'WRITE OPERATION:\nYou have written to "{file_path}" \
-                on these lines: {start_line}:{end_line}.'
+            obs = f'WRITE OPERATION:\nWritten to "{file_path}" \
+                on lines: {start_line}:{end_line}.'
             # 返回成功响应
             return ServiceResponse(
                 status=ServiceExecStatus.SUCCESS,
@@ -166,3 +163,46 @@ def read_file(
             status=ServiceExecStatus.ERROR,
             content=error_message,
         )
+
+
+if __name__ == "__main__":
+    import os
+
+    # 从用户获取文件路径
+    test_file_path = input("请输入要测试的文件路径（留空则使用默认测试文件）：").strip()
+
+    if not test_file_path:
+        # 如果用户未指定文件，创建两个默认测试文件
+        correct_file = "correct_test.py"
+        incorrect_file = "incorrect_test.py"
+
+        # 创建正确的文件
+        with open(correct_file, "w") as f:
+            f.write("def correct_function():\n    print('Hello, World!')\n")
+
+        # 创建包含错误的文件
+        with open(incorrect_file, "w") as f:
+            f.write("def incorrect_function():\n    print('Hello, World!')\n\nundefined_variable\n")
+
+        test_files = [correct_file, incorrect_file]
+    else:
+        # 如果用户指定了文件，检查文件是否存在
+        if not os.path.exists(test_file_path):
+            print(f"文件 '{test_file_path}' 不存在，将创建一个新文件。")
+            with open(test_file_path, "w") as f:
+                f.write("# 这是一个新创建的测试文件\n")
+        test_files = [test_file_path]
+
+    # 对每个测试文件执行 linting
+    for file in test_files:
+        print(f"\n对文件 '{file}' 进行 linting:")
+        result = exec_py_linting(file)
+        print(f"状态: {result.status}")
+        print(f"内容: {result.content}")
+
+    # 清理默认测试文件
+    if not test_file_path:
+        os.remove(correct_file)
+        os.remove(incorrect_file)
+        print("\n已删除默认测试文件。")
+
