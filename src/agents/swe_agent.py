@@ -14,6 +14,9 @@ SWE-agent是一个为解决github问题而设计的代理。
 尝试使其能够处理比仅仅修复github问题更广泛的任务。
 """
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agentscope.agents import AgentBase
 from agentscope.message import Msg
 from agentscope.exception import ResponseParsingError
@@ -179,10 +182,10 @@ class SWEAgent(AgentBase):
         """
         if self.cur_file == "":
             return
-        start_line = self.cur_line - 50
+        start_line = self.cur_line - self.window_size//2
         if start_line < 0:
             start_line = 0
-        end_line = self.cur_line + 50
+        end_line = self.cur_line + self.window_size//2
         if end_line > count_file_lines(self.cur_file):
             end_line = -1
         read_res = read_file(self.cur_file, start_line, end_line)
@@ -266,16 +269,15 @@ class SWEAgent(AgentBase):
         # 解析并执行动作
         action = res.parsed.get("action")
 
-        obs = self.prase_command(res.parsed["action"])
+        obs = self.parse_command(res.parsed["action"])
         
         # 将动作和观察结果添加到运行记忆中
         self.running_memory.append(f"Action: {action}")
         self.running_memory.append(f"Observation: {obs}")
         
         self.speak(
-            Msg(self.name, "\n====Observation====\n" + obs, role="assistant"),
+            Msg(self.name, "\n<observation>\n" + obs + "\n</observation>", role="assistant"),
         )
-
         # # add msg to context windows
         # # 将消息添加到上下文窗口
         # self.running_memory.append(str(action) + str(obs))
@@ -302,7 +304,7 @@ class SWEAgent(AgentBase):
             action_name = msg.content["action"]["name"]
         return msg
 
-    def prase_command(self, command_call: dict) -> str:
+    def parse_command(self, command_call: dict) -> str:
         """
         解析并执行命令。
 
@@ -310,81 +312,124 @@ class SWEAgent(AgentBase):
         command_call (dict): 包含命令名称和参数的字典。
 
         返回:
-        str: 命令执行的结果或观察。
+        str: 包含 XML 格式的命令执行结果或观察。
         """
         command_name = command_call["name"]
         command_args = command_call["arguments"]
 
-        # 处理内置命令
-        if command_name == "exit":
-            return "Current task finished, exitting."
-        if command_name in ["goto", "scroll_up", "scroll_down"]:
-            if command_name == "goto":
-                line = command_call["arguments"]["line_num"]
-                command_str = f"Going to {self.cur_file} from {self.cur_line} to line  \
-                    {command_args['line_num']}."
-                command_failed_str = f"Failed to go to {self.cur_file} from {self.cur_line} to \
-                    line {command_args['line_num']}"
-            if command_name == "scroll_up":
-                line = self.cur_line - 100
-                if line < 0:
-                    line = 0
-                command_str = (
-                    f"Scrolling up from file {self.cur_file} from {self.cur_line} to line {line}."
-                )
-                command_failed_str = (
-                    f"Failed to scroll up {self.cur_file} from {self.cur_line} to line {line}"
-                )
-            if command_name == "scroll_down":
-                line = self.cur_line + 100
-                if line > count_file_lines(self.cur_file):
-                    line = count_file_lines(self.cur_file)
-                command_str = (
-                    f"Scrolling down from file {self.cur_file} from {self.cur_line} to line {line}."
-                )
-                command_failed_str = (
-                    f"Failed to scrool down {self.cur_file} from {self.cur_line} to line {line}"
-                )
-            read_status = read_file(self.cur_file, line, line + 100)
-            if read_status.status == ServiceExecStatus.SUCCESS:
-                self.cur_line = line
-                obs = read_status.content
-                return f"{command_str}. Observe file content: {obs}"
-            else:
-                return command_failed_str
-        if command_name == "execute_shell_command":
-            return execute_shell_command(**command_args).content
-        if command_name == "write_file":
-            self.cur_file = command_args["file_path"]
-            self.cur_line = command_args.get("start_line", 0)
-            write_status = write_file(**command_args)
-            return write_status.content
-        if command_name == "read_file":
-            self.cur_file = command_args["file_path"]
-            self.cur_line = command_args.get("start_line", 0)
-            read_status = read_file(**command_args)
-            return read_status.content
-        if command_name == "exec_py_linting":
-            return exec_py_linting(**command_args).content
+        try:
+            if command_name == "exit":
+                return "<command_result><status>success</status><message>Current task finished, exiting.</message></command_result>"
 
-        # 处理动态添加的命令
-        if command_name in self.commands_description_dict:
-            try:
-                # 获取对应的函数
+            if command_name in ["goto", "scroll_up", "scroll_down"]:
+                if command_name == "goto":
+                    line = command_args["line_num"]
+                    command_str = f"Going to {self.cur_file} from {self.cur_line} to line {line}."
+                elif command_name == "scroll_up":
+                    line = max(0, self.cur_line - self.window_size)
+                    command_str = f"Scrolling up from file {self.cur_file} from {self.cur_line} to line {line}."
+                else:  # scroll_down
+                    line = min(count_file_lines(self.cur_file), self.cur_line + self.window_size)
+                    command_str = f"Scrolling down from file {self.cur_file} from {self.cur_line} to line {line}."
+
+                read_status = read_file(self.cur_file, line, line + self.window_size)
+                if read_status.status == ServiceExecStatus.SUCCESS:
+                    self.cur_line = line
+                    return f"""
+                    <command_result>
+                        <status>success</status>
+                        <action>{command_str}</action>
+                        <file_content>
+                            {read_status.content}
+                        </file_content>
+                    </command_result>
+                    """
+                else:
+                    return f"""
+                    <command_result>
+                        <status>error</status>
+                        <message>Failed to {command_name} {self.cur_file} from {self.cur_line} to line {line}</message>
+                    </command_result>
+                    """
+
+            if command_name == "execute_shell_command":
+                result = execute_shell_command(**command_args).content
+                return f"""
+                <command_result>
+                    <status>success</status>
+                    <shell_output>
+                        {result}
+                    </shell_output>
+                </command_result>
+                """
+
+            if command_name == "write_file":
+                self.cur_file = command_args["file_path"]
+                self.cur_line = command_args.get("start_line", 0)
+                write_status = write_file(**command_args)
+                return f"""
+                <command_result>
+                    <status>{'success' if write_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>
+                    <message>{write_status.content}</message>
+                </command_result>
+                """
+
+            if command_name == "read_file":
+                self.cur_file = command_args["file_path"]
+                self.cur_line = command_args.get("start_line", 0)
+                read_status = read_file(**command_args)
+                return f"""
+                <command_result>
+                    <status>{'success' if read_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>
+                    <file_content>
+                        {read_status.content}
+                    </file_content>
+                </command_result>
+                """
+
+            if command_name == "exec_py_linting":
+                lint_result = exec_py_linting(**command_args).content
+                return f"""
+                <command_result>
+                    <status>success</status>
+                    <lint_output>
+                        {lint_result}
+                    </lint_output>
+                </command_result>
+                """
+
+            if command_name in self.commands_description_dict:
                 func = self.commands_description_dict[command_name]
-                # 直接调用函数
                 result = func(**command_args)
-                # 如果结果是字符串，直接返回；否则，转换为字符串
-                return str(result) if isinstance(result, str) else str(result)
-            except Exception as e:
-                # 捕获异常，获取详细的错误信息
-                error_msg = f"Error executing command '{command_name}':\n"
-                error_msg += f"Exception: {str(e)}\n"
-                error_msg += "Traceback:\n"
-                error_msg += traceback.format_exc()
-                return error_msg
+                return f"""
+                <command_result>
+                    <status>success</status>
+                    <output>
+                        {str(result)}
+                    </output>
+                </command_result>
+                """
 
-        return f"No such command: {command_name}"
+            return f"""
+            <command_result>
+                <status>error</status>
+                <message>No such command: {command_name}</message>
+            </command_result>
+            """
+
+        except Exception as e:
+            error_msg = f"Error executing command '{command_name}':\n"
+            error_msg += f"Exception: {str(e)}\n"
+            error_msg += "Traceback:\n"
+            error_msg += traceback.format_exc()
+            return f"""
+            <command_result>
+                <status>error</status>
+                <error_details>
+                    {error_msg}
+                </error_details>
+            </command_result>
+            """
 
     def get_commands_prompt(self) -> None:
         """
@@ -395,11 +440,8 @@ class SWEAgent(AgentBase):
             self.commands_prompt += f"{name}: {desc}\n"
 
 if __name__ == "__main__":
-    import os
-    import sys
     import agentscope
     from agentscope.message import Msg
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from goodrock_model_wrapper import GoodRockModelWrapper
     
     agentscope.init(
@@ -442,7 +484,7 @@ if __name__ == "__main__":
     response = agent.reply(task_msg)
 
     # 打印 agent 的最终响应
-    print("Agent's final response:")
+    print("====== Agent's final response: ======")
     print(response.content)
 
     # 验证结果

@@ -340,52 +340,33 @@ class ExcelChunkProcessor:
 
     def search_across_tables(self, key, value=None, is_exact_match=False, return_full_row=False, is_unique_result=False, page=1, page_size=10):
         """
-        在所有已处理的表中搜索指定的键值对。
+        Search for key-value pairs across all processed tables.
 
-        此函数遍历所有已处理的表，根据指定的匹配模式查找包含特定键值对的数据。
-        它支持分页，以防止返回过多结果，并提供了多种匹配模式以满足不同的搜索需求。
+        Args:
+            key (str): Column name to search.
+            value (Any, optional): Value to match. If None, returns all data for the key.
+            is_exact_match (bool, optional): If True, performs exact matching.
+            return_full_row (bool, optional): If True, returns entire row of data.
+            is_unique_result (bool, optional): If True, returns deduplicated results.
+            page (int, optional): Page number to return, default is 1.
+            page_size (int, optional): Number of results per page, default is 10.
 
-        参数:
-        key (str): 要搜索的列名（键）。
-        value (Any, optional): 要匹配的值。当为None或空字符串时，将返回该键所有的数据。
-        is_exact_match (bool, optional): 是否进行精确匹配。否则返回所有包含该值的数据。
-        return_full_row (bool, optional): 是否返回整行数据。如果为False，则只返回匹配的键值。
-        is_unique_result (bool, optional): 是否返回去重后的结果。
-        page (int, optional): 要返回的页码，默认为 1。
-        page_size (int, optional): 每页的结果数量，默认为 10。
+        Returns:
+            dict: Contains 'results' (list of matching data), 'total_count', 'unique_count', 'page', and 'total_pages'.
 
-        返回:
-        dict: 包含以下键的字典：
-            - 'results': 匹配结果的列表。每个结果是一个字典，包含：
-                - 'file_path': 匹配数据所在的文件路径
-                - 'sheet_name': 匹配数据所在的工作表名称（对于CSV文件为None）
-                - 'table_name': 匹配数据所在的数据库表名
-                - 'data': 包含匹配数据的字典（在 return_full_row 为 False 时只包含指定键的值）
-            - 'total_count': 总匹配结果数
-            - 'unique_count': 去重后的匹配结果数
-            - 'page': 当前页码
-            - 'total_pages': 总页数
+        Example:
+            >>> processor = ExcelChunkProcessor()
+            >>> results = processor.search_across_tables('patient_id', '66a4f976433ccc70b6a055345b22f74a')
+            >>> for result in results['results']:
+            ...     print(f"Found in {result['file_path']} | {result['sheet_name']}: {result['data']}")
+            >>> print(f"Total: {results['total_count']}, Unique: {results['unique_count']}")
+            >>> print(f"Page: {results['page']}/{results['total_pages']}")
 
-        示例:
-        >>> processor = ExcelChunkProcessor()
-        >>> # 精确匹配，返回所有结果
-        >>> results = processor.search_across_tables('患者标识', '66a4f976433ccc70b6a055345b22f74a')
-        >>> # 包含匹配，返回去重结果
-        >>> results = processor.search_across_tables('姓名', '张', is_exact_match=False, is_unique_result=True)
-        >>> # 仅返回匹配的键值，返回所有结果
-        >>> results = processor.search_across_tables('关联号', return_full_row=False)
-        >>> # 遍历结果
-        >>> for result in results['results']:
-        ...     print(f"Found in {result['file_path']} | {result['sheet_name']}: {result['data']}")
-        >>> print(f"Total results: {results['total_count']}, Unique results: {results['unique_count']}")
-        >>> print(f"Page: {results['page']}/{results['total_pages']}")
-
-        注意:
-        - 搜索区分大小写。
-        - 当 value 为 None 或空字符串时，将返回包含指定键的所有数据。
-        - 当 return_full_row 为 False 时，仅返回指定键的值，而不是整行数据。
-        - 确保提供的键存在于至少一个表中，否则可能不会返回任何结果。
-        - 当 is_unique_result 为 True 时，返回去重后的结果。
+        Note:
+            - Case-sensitive search
+            - Returns all data for key if value is None
+            - Only returns key's value if return_full_row is False
+            - Deduplicates results if is_unique_result is True
         """
         self.ensure_connected()
         all_results = []
@@ -490,23 +471,23 @@ class ExcelChunkProcessor:
 
     def get_all_table_headers(self):
         """
-        获取所有已处理表的表头（列名）、摘要信息和记录数。
+        Get headers, summary info, and record counts for all processed tables.
 
-        此函数返回数据库中所有表的表头、摘要信息和记录数。它提供了整个数据库结构的全面概览，
-        包括每个表的列名、文件信息、摘要描述以及表中的记录数量，对于理解和分析复杂的数据集非常有帮助。
+        Returns a comprehensive overview of the database structure, including column names,
+        file info, summary descriptions, and record counts for each table.
 
-        返回:
-        dict: 一个字典，其中键是表名table_name，值是包含该表详细信息的字典。每个表的详细信息包括：
-            - 'file_path': 文件路径
-            - 'sheet_name': 工作表名称（对于CSV文件为None）
-            - 'columns': 列名列表
-            - 'summary': 表的摘要信息
-            - 'record_count': 每个表中的总记录数。
+        Returns:
+        dict: A dictionary where keys are table names and values are dicts with table details:
+            - 'file_path': File path
+            - 'sheet_name': Sheet name (None for CSV files)
+            - 'columns': List of column names
+            - 'summary': Table summary
+            - 'record_count': Total record count in the table
 
-        注意:
-        - 返回的字典可能会很大，取决于已处理的文件数量。
-        - 对于CSV文件，'sheet_name'值将为None。
-        - 如果某个表没有摘要信息，'summary'字段将为None或默认值。
+        Note:
+        - The returned dict may be large depending on the number of processed files.
+        - 'sheet_name' is None for CSV files.
+        - 'summary' may be None or a default value if not available.
         """
         self.ensure_connected()
         query = "SELECT file_path, sheet_name, table_name, columns, summary FROM processed_files"
@@ -530,18 +511,19 @@ class ExcelChunkProcessor:
 
     def execute_query(self, query, params=None):
         """
-        执行自定义SQL查询。
+        Execute a custom SQL query.
 
-        此函数允许执行任意SQL查询，提供了直接访问数据库的灵活性。它可用于执行复杂的查询或数据操作，这些操作可能无法通过其他预定义方法实现。
+        This function allows executing arbitrary SQL queries, providing flexibility for direct database access.
+        It can be used for complex queries or data operations not possible through other predefined methods.
 
-        参数:
-        query (str): 要执行的SQL查询字符串。
-        params (tuple, optional): 查询参数的元组，用于参数化查询。默认为None。
+        Args:
+        query (str): SQL query string to execute.
+        params (tuple, optional): Tuple of query parameters for parameterized queries. Defaults to None.
 
-        返回:
-        list: 查询结果的行列表。每行都是一个元组，包含该行的所有列值。
+        Returns:
+        list: List of rows from the query result. Each row is a tuple containing all column values.
 
-        示例:
+        Example:
         >>> processor = ExcelChunkProcessor()
         >>> query = "SELECT * FROM sales_data WHERE total > ? AND date BETWEEN ? AND ?"
         >>> params = (1000, '2023-01-01', '2023-12-31')

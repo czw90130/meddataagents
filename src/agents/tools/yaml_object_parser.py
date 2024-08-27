@@ -20,6 +20,33 @@ from agentscope.utils.tools import _join_str_with_comma_and
 from agentscope.agents import DictDialogAgent
 from agentscope.message import Msg
 
+YAML_FORMAT_RULES = """
+1. Short strings: Write directly.
+2. Multi-line strings: 
+   - Use '|' to preserve line breaks.
+   - Use '>' for wrappable text.
+3. Strings with special characters (including :): Use double quotes.
+4. Escaping in quoted strings:
+   - Line breaks: Use '\\n'.
+   - Double quotes: Use '\\\"'.
+   - Single quotes: Use \"'\".
+"""
+
+YAML_EXAMPLE = """
+<yaml>
+description: |
+  This is a multi-line description.
+  It preserves line breaks.
+summary: >
+  This is a long summary that can be
+  wrapped across multiple lines.
+quote: "This text has \\\"double quotes\\\" and 'single quotes'."
+with_linebreaks: "This text has\\nline breaks."
+with_colon: "This string contains a colon: be careful!"
+time: "12:30"
+</yaml>
+"""
+
 
 class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
     """用于解析Markdown代码块中的YAML字典对象的类"""
@@ -29,102 +56,39 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
 
     tag_begin: str = "<yaml>"
     """代码块的开始标签。"""
-    tag_begin2: str = "```yaml"
+    tag_begin_alt: str = "```yaml"
 
     content_hint: str = "{your_yaml_dictionary}"
     """内容提示。"""
 
     tag_end: str = "</yaml>"
     """代码块的结束标签。"""
-    tag_end2: str = "```"
+    tag_end_alt: str = "```"
 
     _format_instruction = (
         "Respond with a YAML dictionary enclosed in XML tags as follows:\n"
         "<yaml>\n{content_hint}\n</yaml>\n"
-        "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
-        "1. For short, simple string values, you can write them directly.\n"
-        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
-        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
-        "   - Use '>' for long text that can be wrapped.\n"
-        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
-        "4. Use '\\n' for line breaks within quoted strings.\n"
-        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
-        "6. Use \"'\" to represent single quotes within quoted strings.\n"
-        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
-        "Example:\n"
-        "<yaml>\n"
-        "description: |\n"
-        "  This is a multi-line description.\n"
-        "  It preserves line breaks.\n"
-        "summary: >\n"
-        "  This is a long summary that can be\n"
-        "  wrapped across multiple lines.\n"
-        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
-        "with_linebreaks: \"This text has\\nline breaks.\"\n"
-        "with_colon: \"This string contains a colon: be careful!\"\n"
-        "time: \"12:30\"\n"
-        "</yaml>\n"
+        f"Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n{YAML_FORMAT_RULES}\n"
+        f"Example:\n{YAML_EXAMPLE}"
     )
     """YAML对象格式的指令。"""
 
     _format_instruction_with_schema = (
         "Respond with a YAML dictionary enclosed in XML tags as follows:\n"
         "<yaml>\n{content_hint}\n</yaml>\n"
-        "The generated YAML dictionary MUST follow this schema: \n"
+        "The generated YAML dictionary MUST follow this schema:\n"
         "{schema}\n"
-        "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
-        "1. For short, simple string values, you can write them directly.\n"
-        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
-        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
-        "   - Use '>' for long text that can be wrapped.\n"
-        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
-        "4. Use '\\n' for line breaks within quoted strings.\n"
-        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
-        "6. Use \"'\" to represent single quotes within quoted strings.\n"
-        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
-        "Example:\n"
-        "<yaml>\n"
-        "description: |\n"
-        "  This is a multi-line description.\n"
-        "  It preserves line breaks.\n"
-        "summary: >\n"
-        "  This is a long summary that can be\n"
-        "  wrapped across multiple lines.\n"
-        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
-        "with_linebreaks: \"This text has\\nline breaks.\"\n"
-        "with_colon: \"This string contains a colon: be careful!\"\n"
-        "time: \"12:30\"\n"
-        "</yaml>\n"
+        f"Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n{YAML_FORMAT_RULES}\n"
+        f"Example:\n{YAML_EXAMPLE}"
     )
     """带有模式的YAML对象格式指令。"""
     
     _fix_yaml_instruction = (
-        "Fix the YAML format in the raw_response:\n",
+        "Fix the YAML format in the raw_response:\n"
         "<raw_response>\n{raw_response}\n</raw_response>\n"
         "<error>\n{error}\n</error>\n"
-         "Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n"
-        "1. For short, simple string values, you can write them directly.\n"
-        "2. For long text or multi-line strings, use the '|' or '>' YAML syntax:\n"
-        "   - Use '|' for multi-line strings that should preserve line breaks.\n"
-        "   - Use '>' for long text that can be wrapped.\n"
-        "3. When a string value contains special characters (including colons), enclose it in double quotes.\n"
-        "4. Use '\\n' for line breaks within quoted strings.\n"
-        "5. Use '\\\"' to represent double quotes within quoted strings.\n"
-        "6. Use \"'\" to represent single quotes within quoted strings.\n"
-        "7. For strings containing colons, always use double quotes, even if it's a short string.\n"
-        "Example:\n"
-        "<yaml>\n"
-        "description: |\n"
-        "  This is a multi-line description.\n"
-        "  It preserves line breaks.\n"
-        "summary: >\n"
-        "  This is a long summary that can be\n"
-        "  wrapped across multiple lines.\n"
-        "quote: \"This text has \\\"double quotes\\\" and 'single quotes'.\"\n"
-        "with_linebreaks: \"This text has\\nline breaks.\"\n"
-        "with_colon: \"This string contains a colon: be careful!\"\n"
-        "time: \"12:30\"\n"
-        "</yaml>\n"
+        f"Important: Ensure all YAML keys and string values are correctly formatted. Follow these rules:\n{YAML_FORMAT_RULES}\n"
+        f"Example:\n{YAML_EXAMPLE}"
     )
     """修复YAML对象格式指令。"""
 
@@ -269,7 +233,7 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         raw_response = None
 
         # 尝试提取YAML内容
-        for tag_pair in [(self.tag_begin, self.tag_end), (self.tag_begin2, self.tag_end2)]:
+        for tag_pair in [(self.tag_begin, self.tag_end), (self.tag_begin_alt, self.tag_end_alt)]:
             try:
                 extract_text = self._extract_first_content_by_tag(
                     response,
