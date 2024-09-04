@@ -6,7 +6,7 @@ from collections import deque
 from agentscope.agents import DictDialogAgent
 from agentscope.message import Msg
 from functools import partial
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from agents.tools.yaml_object_parser import MarkdownYAMLDictParser
 
 class DiffDecision:
@@ -20,8 +20,9 @@ class DiffDecision:
         self.agent = DictDialogAgent(
             name="DiffDecision",
             sys_prompt=("You are an AI assistant specialized in handling text differences. "
-                        "Your task is to decide whether to accept proposed text changes. "
-                        "Your main goal is to ensure text quality and consistency."),
+                        "Your primary task is to ensure that modifications align with the intended changes. "
+                        "You should be cautious about rejecting changes and only do so when absolutely necessary. "
+                        "Your goal is to maintain text quality and consistency while respecting the proposed modifications."),
             model_config_name="kuafu3.5",
             use_memory=True
         )
@@ -29,7 +30,7 @@ class DiffDecision:
         self.parser = MarkdownYAMLDictParser(
             {
                 "decision": "String. Possible values are 'y' (accept), 'n' (reject), or 's' (subdivide).",
-                "reason": "String. Brief explanation for your decision."
+                "reason": "String. One-sentence concise rationale. Include 'preservation-comments' content if relevant."
             }
         )
         self.agent.set_parser(self.parser)
@@ -43,31 +44,40 @@ class DiffDecision:
         """
         prompt = (
             "<key_points>\n"
-            "1. Carefully review the proposed text changes\n"
-            "2. Consider the impact of changes on overall text quality\n"
-            "3. Decide whether to Accept (y), Reject (n), or Subdivide (s) for further analysis\n"
-            "4. Provide a brief rationale for your decision\n"
-            "5. Be cautious with 'replace' changes that may intend to preserve original content\n"
-            "6. Handle preservation comments with care:\n"
-            "   6.1. Identify common preservation comments, such as '# ...', '# ... 现有代码 ...', '# ... keep XXX unchanged ...', '# ... existing code ...', '# ... 实现XXX的逻辑 ...'\n"
-            "   6.2. For insertions or replacements containing preservation comments:\n"
-            "        - Subdivide the change to isolate the preservation comment\n"
-            "        - Reject the insertion of the isolated preservation comment\n"
-            "        - Consider accepting other necessary insertions or changes\n"
-            "   6.3. Ensure that the original content indicated by preservation comments is maintained\n"
-            "7. You can use Subdivide multiple times to analyze complex changes. However, note that single-line deletions or insertions cannot be further subdivided\n"
-            "   7.1. If it's a preservation comment, reject the insertion\n"
-            "   7.2. If it contains a preservation comment, use Subdivide to isolate it\n"
-            "   7.3. If it's a genuine change, consider accepting or rejecting based on its merit\n"
-            "8. Always prioritize maintaining code functionality and clarity\n"
+            "1. Ensure modifications align with intended changes\n"
+            "2. Be cautious about rejecting changes, but prioritize preserving important existing code\n"
+            "3. Review proposed text changes carefully\n"
+            "4. Consider impact on overall text quality and consistency\n"
+            "5. Decide: Accept (y), Reject (n), or Subdivide (s)\n"
+            "6. Provide brief rationale for decision\n"
+            "7. Be cautious with 'replace' changes preserving original content\n"
+            "8. Handle preservation-comments carefully:\n"
+            "   - Identify common preservation-comments (e.g., '# ...', '# ... 现有代码 ...', '# ... keep XXX unchanged ...', '# ... existing code ...', '# ... 实现XXX的逻辑 ...')\n"
+            "   - For insertions/replacements with preservation-comments:\n"
+            "     * Use Subdivide multiple times to analyze complex changes\n"
+            "     * If it's a single-line preservation-comment, reject the insertion\n"
+            "     * If it contains a preservation-comment, use Subdivide to isolate it\n"
+            "     * If it's a genuine change, consider accepting or rejecting based on its merit\n"
+            "   - Maintain original content indicated by preservation-comments\n"
+            "   - Note that single-line deletions or insertions cannot be further subdivided\n"
+            "9. Use Subdivide for complex changes, but note single-line changes can't be subdivided\n"
+            "10. Acceptance guidelines:\n"
+            "    - Accept changes unless they clearly violate preservation-comments\n"
+            "    - For DELETE operations, carefully evaluate the impact but lean towards accepting unless they clearly violate preservation-comments.\n"
+            "    - Accept changes to non-preservation-comments, including any documentation and comments.\n"
+            "    - For a insertion with preservation-comments, subdividing to reject them separately.\n"
             "</key_points>\n"
             
-            "<history>\n"
+            "<decision_chain>\n"
             f"{history}\n"
-            "</history>\n"
+            "</decision_chain>\n"
             
             "<instructions>\n"
-            "Based on the above history and key points, make your decision. If you encounter a change with preservation comments, consider subdividing to handle them separately.\n"
+            "Make your decision based on the above key points.\n"
+            "Prioritize preserving important existing code, especially those marked by preservation-comments.\n"
+            "If you encounter a insertion with preservation-comments, consider subdividing to reject them separately.\n"
+            "Be cautious about accepting DELETE operations, and carefully evaluate all changes.\n"
+            "Use subdivide for complex changes or when dealing with preservation-comments.\n"
             "</instructions>\n"
         )
         
@@ -85,19 +95,21 @@ class DiffProcessor:
 
     CHOICE_EXPLANATION = {'y': 'accept', 'n': 'reject', 's': 'subdivide'}
 
-    def __init__(self, decision_func=None, history_maxlen=7, context_lines=5):
+    def __init__(self, decision_func=None, history_maxlen=7, context_lines=5, only_process_replace=True):
         """
         初始化 DiffProcessor 实例。
 
         :param decision_func: 用于决定是否接受变更的函数，默认为 manual_decision
         :param history_maxlen: 历史记录队列的最大长度
         :param context_lines: 显示变更上下文的行数
+        :param only_process_replace: 是否只处理 replace 类型的变更，默认为 False
         """
         self.decision_func = decision_func or self.manual_decision
         self.history_queue = deque(maxlen=history_maxlen)
         self.subdivide_depth = 0  # 细分深度，用于跟踪递归细分的层级
         self.context_lines = context_lines
         self.next_change_start = None  # 下一个变更的起始位置
+        self.only_process_replace = only_process_replace
 
     def update_history(self, new_record):
         """
@@ -326,16 +338,25 @@ class DiffProcessor:
                         self.next_change_start = next_item['start_original'] if item['type'] == 'delete' else next_item['start_modified']
 
                 if item['type'] in ['delete', 'insert']:
-                    accepted, lines_original, lines_modified = self.process_change(
-                        item['type'], 
-                        item['content'], 
-                        item['start_original'] if item['type'] == 'delete' else item['start_modified'],
-                        item['end_original'] if item['type'] == 'delete' else item['end_modified'],
-                        lines_original, 
-                        lines_modified
-                    )
-                    if accepted or (item['type'] == 'insert' and not accepted):
+                    if self.only_process_replace:
+                        # 如果只处理 replace，则自动接受 insert 和 delete
+                        if item['type'] == 'delete':
+                            lines_original = lines_original[:item['start_original']] + lines_original[item['end_original']:]
+                        elif item['type'] == 'insert':
+                            lines_original = lines_original[:item['start_original']] + item['content'] + lines_original[item['start_original']:]
                         changes_made = True
+                    else:
+                        accepted, lines_original, lines_modified = self.process_change(
+                            item['type'], 
+                            item['content'], 
+                            item['start_original'] if item['type'] == 'delete' else item['start_modified'],
+                            item['end_original'] if item['type'] == 'delete' else item['end_modified'],
+                            lines_original, 
+                            lines_modified
+                        )
+                        if accepted or (item['type'] == 'insert' and not accepted):
+                            changes_made = True
+                    if changes_made:
                         break
 
                 elif item['type'] == 'replace':
@@ -398,8 +419,12 @@ class DiffProcessor:
             if not changes_made:
                 return ''.join(lines_original)
 
-# 默认的比较字符串
-DEFAULT_ORIGINAL = '''# This is a complex Python script to demonstrate different changes
+
+
+# 主程序
+if __name__ == "__main__":
+    # 默认的比较字符串
+    DEFAULT_ORIGINAL = '''# This is a complex Python script to demonstrate different changes
 
 import os
 import sys
@@ -450,7 +475,7 @@ if __name__ == "__main__":
     main()
 '''
 
-DEFAULT_MODIFIED = '''# This is a modified complex Python script to demonstrate various changes
+    DEFAULT_MODIFIED = '''# This is a modified complex Python script to demonstrate various changes
 
 import os
 import sys
@@ -500,14 +525,11 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-
-# 主程序
-if __name__ == "__main__":
     import agentscope
     from goodrock_model_wrapper import GoodRockModelWrapper
     
     agentscope.init(
-        model_configs="../configs/model_configs.json"
+        model_configs="../../configs/model_configs.json"
     )
 
     
@@ -532,7 +554,8 @@ if __name__ == "__main__":
         content2 = DEFAULT_MODIFIED
 
     diff_decision = DiffDecision()
-    diff_processor = DiffProcessor(decision_func=diff_decision.make_decision)
+    only_process_replace = True  # 或 False，根据需要设置
+    diff_processor = DiffProcessor(decision_func=diff_decision.make_decision, only_process_replace=only_process_replace)
     # diff_processor = DiffProcessor()
     
     updated_content = diff_processor.compare_content(content1, content2)

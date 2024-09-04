@@ -43,6 +43,7 @@ from agents.tools.swe_agent_prompts import (
     get_step_prompt,
 )
 
+from agents.tools.diff_processor import DiffDecision, DiffProcessor
 
 def prepare_func_prompt(function: Callable) -> str:
     """
@@ -168,6 +169,10 @@ class SWEAgent(AgentBase):
         self.last_executed_command = None
         self.repeated_command_count = 0
         self.max_repeated_commands = 5  # 允许重复执行同一命令的最大次数
+
+        # 初始化 DiffDecision 和 DiffProcessor
+        self.diff_decision = DiffDecision()
+        self.diff_processor = DiffProcessor(decision_func=self.diff_decision.make_decision)
 
     def add_command_func(self, name: str, func: Callable, instance=None) -> None:
         if instance:
@@ -419,7 +424,8 @@ class SWEAgent(AgentBase):
             if command_name == "write_file":
                 self.cur_file = command_args["file_path"]
                 self.cur_line = command_args.get("start_line", 0)
-                write_status = write_file(**command_args)
+                # 更新 write_file 调用，传入 diff_processor
+                write_status = write_file(**command_args, diff_processor=self.diff_processor)
                 return (
                 "<cmd_result>\n"
                 f"    <status>{'success' if write_status.status == ServiceExecStatus.SUCCESS else 'error'}</status>\n"

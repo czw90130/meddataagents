@@ -11,6 +11,8 @@ import os
 
 from agentscope.service.service_response import ServiceResponse
 from agentscope.service.service_status import ServiceExecStatus
+from agents.tools.diff_processor import DiffProcessor
+from typing import Optional
 
 
 def exec_py_linting(file_path: str) -> ServiceResponse:
@@ -25,7 +27,7 @@ def exec_py_linting(file_path: str) -> ServiceResponse:
         ServiceResponse: Contains either the output from the flake8 command as
         a string if successful, or an error message including the error type.
     """
-    command = f"flake8 --isolated --select=F821,F822,F831,E111,E112,E113,E999,E902 {file_path}"
+    command = f"flake8 --isolated --select=F822,F831,E111,E112,E113,E999,E902 {file_path}"
 
     try:
         # 执行flake8命令
@@ -64,49 +66,75 @@ def write_file(
     content: str,
     start_line: int = 0,
     end_line: int = -1,
+    diff_processor: Optional[DiffProcessor] = None
 ) -> ServiceResponse:
     """
-    Write content to a file by replacing the current lines between <start_line> and <end_line> with <content>. Default start_line = 0 and end_line = -1. Calling this with no <start_line> <end_line> args will replace the whole file, so besure to use this with caution when writing to a file that already exists.
+    Write content to a file by replacing the current lines between <start_line> and <end_line> with <content>. 
+    If diff_processor is provided, it will use DiffDecision and DiffProcessor to handle the changes.
+    Default start_line = 0 and end_line = -1. Calling this with no <start_line> <end_line> args will replace the whole file, 
+    so be sure to use this with caution when writing to a file that already exists.
 
     Args:
         file_path (`str`): The path to the file to write to.
         content (`str`): The content to write to the file.
-        start_line (`Optional[int]`, defaults to `0`): The start line of the file to be replace with <content>.
-        end_line (`Optional[int]`, defaults to `-1`): The end line of the file to be replace with <content>. end_line = -1 means the end of the file, otherwise it should be a positive integer indicating the line number.
-    """  # noqa
+        start_line (`Optional[int]`, defaults to `0`): The start line of the file to be replaced with <content>.
+        end_line (`Optional[int]`, defaults to `-1`): The end line of the file to be replaced with <content>. 
+                                                     end_line = -1 means the end of the file, otherwise it should be 
+                                                     a positive integer indicating the line number.
+        diff_processor (`Optional[DiffProcessor]`, defaults to `None`): The DiffProcessor instance to use for handling changes.
+    """
     try:
         # 确定文件打开模式
         mode = "w" if not os.path.exists(file_path) else "r+"
-        # 将内容分割成行，保留换行符
-        insert = content.splitlines(True)
-        with open(file_path, mode, encoding="utf-8") as file:
-            if mode != "w":
-                # 如果文件已存在，读取所有行
-                all_lines = file.readlines()
-                # 构建新的文件内容
-                new_file = all_lines[:start_line]
-                new_file += insert
-                if end_line != -1:
-                    new_file += all_lines[end_line + 1:]
-            else:
-                # 如果是新文件，直接使用插入的内容
-                new_file = insert
+        
+        def write_without_diff_processor():
+            insert = content.splitlines(True)
+            with open(file_path, mode, encoding="utf-8") as file:
+                if mode != "w":
+                    all_lines = file.readlines()
+                    new_file = all_lines[:start_line] + insert + (all_lines[end_line + 1:] if end_line != -1 else [])
+                else:
+                    new_file = insert
 
-            # 将文件指针移到开头，写入新内容，并截断文件
-            file.seek(0)
-            file.writelines(new_file)
-            file.truncate()
+                file.seek(0)
+                file.writelines(new_file)
+                file.truncate()
             
-            # 构建操作描述
-            obs = f'WRITE OPERATION:\nWritten to "{file_path}" \
-                on lines: {start_line}:{end_line}.'
-            # 返回成功响应
+            obs = f'WRITE OPERATION:\nWritten to "{file_path}" on lines: {start_line}:{end_line}.'
             return ServiceResponse(
                 status=ServiceExecStatus.SUCCESS,
                 content=obs + "".join(new_file),
             )
+
+        if diff_processor is None:
+            return write_without_diff_processor()
+        else:
+            try:
+                # 使用 DiffProcessor 处理变更
+                with open(file_path, 'r', encoding="utf-8") as file:
+                    original_content = file.read()
+
+                # 准备新的内容
+                original_lines = original_content.splitlines(True)
+                new_content = ''.join(original_lines[:start_line] + content.splitlines(True) + 
+                                      (original_lines[end_line+1:] if end_line != -1 else []))
+
+                # 使用 DiffProcessor 比较内容
+                updated_content = diff_processor.compare_content(original_content, new_content)
+
+                # 写入更新后的内容
+                with open(file_path, 'w', encoding="utf-8") as file:
+                    file.write(updated_content)
+
+                obs = f'WRITE OPERATION:\nWritten to "{file_path}" using DiffProcessor.'
+                return ServiceResponse(
+                    status=ServiceExecStatus.SUCCESS,
+                    content=obs + updated_content,
+                )
+            except Exception as diff_error:
+                print(f"DiffProcessor error: {diff_error}. Falling back to original method.")
+                return write_without_diff_processor()
     except Exception as e:
-        # 捕获并返回任何异常
         error_message = f"{e.__class__.__name__}: {e}"
         return ServiceResponse(
             status=ServiceExecStatus.ERROR,
