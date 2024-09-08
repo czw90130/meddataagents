@@ -16,6 +16,8 @@ from agents.tools.excel_processor import ExcelChunkProcessor
 from agents.tools.execute_python_code import execute_python_code
 from agents.annotator import Annotator
 from agents.swe_agent import SWEAgent
+from agents.sql_designer import SQLDesigner
+from agents.data_extractor import DataExtractor
 
 
 def check_nested_tags(text):
@@ -389,38 +391,65 @@ class AgentGroups:
         project_definition_input,
         db_path,
         table_header_string,
-        annotate_tags_string,
         return_table_path,
         coding_dir_path,
         swe_template_path="agents/tools/swe_template/make_table.py"):
         
+        print("开始执行 make_data_table 函数")
+        print(f"数据库路径: {db_path}")
+        print(f"返回表格路径: {return_table_path}")
+        print(f"代码目录路径: {coding_dir_path}")
+        print(f"SWE模板路径: {swe_template_path}")
         
         return_table_path = os.path.abspath(return_table_path)
+        print(f"绝对路径 - 返回表格: {return_table_path}")
         
         os.makedirs(coding_dir_path, exist_ok=True)
         coding_dir_path = os.path.abspath(coding_dir_path)
+        print(f"创建并获取绝对路径 - 代码目录: {coding_dir_path}")
         
-        db_processor = ExcelChunkProcessor(db_path)
-        with open(swe_template_path, 'r', encoding='utf-8') as f:
-            code_str = f.read()
+        print("初始化 SQLDesigner")
+        sql_designer = SQLDesigner(db_path)
+        sql_designer_prompt = (
+            " <task>\n"
+            f"   将所有患者进行统计梳理，并汇总表格，要求具备以下数据项：{table_header_string}\n"
+            "</task>\n"
+            "<requirements>\n"
+            "  根据任务要求设计全面，而非精确的SQL查询\n"
+            "  考虑患者信息可能分散在多个表中\n"
+            "  你不需要精确定位数据项，快速返回可能包含所需数据项的信息，特别是在长文本字段中\n"
+            "  有后续程序协助你进行数据的验证和精确分析，设计可逐个返回每个患者模糊但全面结果的SQL查询方案\n"
+            "  如果需要多条SQL语句，每条语句单独包含在<SQL>标签中\n"
+            "  处理长文时要谨慎，建议将查询拆分成多条SQL语句，以防止结果超过字数上限\n"
+            "  禁止使用LIKE语句匹配数据项标题，因为可能存在同义词情况\n"
+            "  无需验证返回的结果，后续程序会进行更高效的验证\n"
+            "</requirements>\n"
+        )
         
-        code_str = code_str.replace('<ANNOTATE_TAGS>', annotate_tags_string)
-        code_str = code_str.replace('<TABLE_HEADER>', table_header_string)
+        print("执行 SQLDesigner 设计SQL语句")
+        sql_config = sql_designer.generate_sql_config(sql_designer_prompt)
+        print("SQLDesigner 结果:")
+        print(sql_config)
+        
+        print(f"读取 SWE 模板文件: {swe_template_path}")
+        with open(swe_template_path, 'r', encoding='utf-8') as template_file:
+            code_str = template_file.read()
         
         coding_path = os.path.join(coding_dir_path, 'make_table.py')
+        print(f"写入代码到文件: {coding_path}")
         with open(coding_path, 'w', encoding='utf-8') as f:
             f.write(code_str)
             
-        # Initialize the Annotator
-        annotator = Annotator()
+        print("初始化 DataExtractor")
+        data_extractor = DataExtractor()
             
         local_objects = {
-            "annotator": annotator,
-            "db_processor": db_processor, 
+            "data_extractor": data_extractor,
+            "sql_config": sql_config, 
             "return_table_path": return_table_path,
-            "annotate_tags_string": annotate_tags_string,
             "table_header_string": table_header_string,
         }
+        print("本地对象:", local_objects.keys())
             
         # 定义开发任务
         task = f"""
@@ -432,12 +461,12 @@ class AgentGroups:
     <project_definition>
 {project_definition_input}
     </project_definition>
-    <annotate_tags>
-{annotate_tags_string}
-    </annotate_tags>
     <table_header>
 {table_header_string}
     </table_header>
+    <sql_config>
+{sql_config}
+    </sql_config>
     <objectives>
         Thoroughly refactor and enhance the initial code located at {coding_path}
         Implement a robust table creation mechanism
@@ -471,23 +500,19 @@ class AgentGroups:
 </task>
         """  # noqa
         
-        # 创建SWEAgent实例
+        print("创建 SWEAgent 实例")
         swe_agent = SWEAgent("SWE-Agent", "kuafu3.5")
-        # 添加数据库查询方法作为命令
-        swe_agent.add_command_func("get_all_table_headers", ExcelChunkProcessor.get_all_table_headers, instance=db_processor)
-        swe_agent.add_command_func("execute_query", ExcelChunkProcessor.execute_query, instance=db_processor)
         
-        # 创建任务消息
+        print("创建任务消息")
         task_msg = Msg("user", task, role="user")
     
-        # 让 agent 执行任务
+        print("让 agent 执行任务")
         response = swe_agent.reply(task_msg)
 
-        # 打印 agent 的最终响应
-        print("SWE Agent's final response:")
+        print("SWE Agent 的最终响应:")
         print(response.content)
         
-        
+        print("make_data_table 函数执行完毕")
         
         
         # result = execute_python_code(
@@ -519,14 +544,11 @@ if __name__ == "__main__":
         project_definition_input = f.read() 
     with open("temp/table_header.yaml", 'r', encoding='utf-8') as f:
         table_header_string = f.read()
-    with open("temp/annotate_tags.yaml", 'r', encoding='utf-8') as f:
-        annotate_tags_string = f.read() 
     ag.make_data_table(
         user_requirements,
         project_definition_input,
         "project_data.db",
         table_header_string,
-        annotate_tags_string,
         "temp/result.csv",
         "temp/coding")
     

@@ -16,8 +16,8 @@ from agentscope.exception import (
 from agentscope.models import ModelResponse
 from agentscope.parsers import ParserBase
 from agentscope.parsers.parser_base import DictFilterMixin
-from agentscope.utils.tools import _join_str_with_comma_and
-from agentscope.agents import DictDialogAgent
+from agentscope.utils.common import _join_str_with_comma_and
+from agentscope.agents import DialogAgent
 from agentscope.message import Msg
 
 YAML_FORMAT_RULES = """
@@ -164,7 +164,7 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
         
         # 修复YAML对象的Agent
         if fix_model_config_name is not None:
-            self.fix_agent = DictDialogAgent(
+            self.fix_agent = DialogAgent(
                 name="DataArchitect",
                 sys_prompt="You are a YAML object fixer.",
                 model_config_name=fix_model_config_name,
@@ -273,17 +273,16 @@ class MarkdownYAMLDictParser(ParserBase, DictFilterMixin):
                     logger.info("YAML修复成功。")
                 except yaml.YAMLError as e2:
                     raise ResponseParsingError(
-                        f"修复后的YAML仍然无法解析。错误: {e2}",
-                        f'解析器提示词：\n {self.format_instruction}',
+                        message=f"修复后的YAML仍然无法解析。错误: {e2}",
                         raw_response=raw_response,
-                    ) from None
+                        parser_instruction=self.format_instruction
+                    )
             else:
                 raise ResponseParsingError(
-                    f"{used_tags[0]} 和 {used_tags[1]} 之间的内容必须是一个YAML对象。"
-                    f'解析 "{raw_response}" 时发生错误: {e}',
-                    f'解析器提示词：\n {self.format_instruction}',
+                    message=f"{used_tags[0]} 和 {used_tags[1]} 之间的内容必须是一个YAML对象。解析 \"{raw_response}\" 时发生错误: {e}",
                     raw_response=raw_response,
-                ) from None
+                    parser_instruction=self.format_instruction
+                )
 
         # 检查解析后的内容是否为字典
         if not isinstance(parsed_yaml, dict):

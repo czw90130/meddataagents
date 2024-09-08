@@ -8,7 +8,7 @@ from loguru import logger
 
 from agentscope.models import ModelWrapperBase, ModelResponse
 from agentscope.message import Msg
-from agentscope.utils.tools import _convert_to_str
+from agentscope.utils.common import _convert_to_str
 
 class GoodRockModelWrapper(ModelWrapperBase):
     """The model wrapper for Kuafu API."""

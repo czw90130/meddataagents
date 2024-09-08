@@ -1,14 +1,6 @@
-import csv
+import sqlite3
 import yaml
-from typing import Dict, Any
-
-# Keep the original string definitions
-
-annotate_tags = yaml.safe_load(annotate_tags_string)
-
-
-table_header = yaml.safe_load(table_header_string)
-
+import csv
 from typing import Dict, Any, Optional
 
 class PatientDataManager:
@@ -93,50 +85,94 @@ class PatientDataManager:
             for patient in self.data:
                 writer.writerow(patient)
 
-# Example usage of db_processor functions with explanations
 
-# Get all table headers
-headers = db_processor.get_all_table_headers()
-"""
-Retrieves headers, summary information, and record counts for all processed tables in the database.
-Returns a ServiceResponse object containing the execution status and result.
-"""
-print("All table headers:\n", headers)
-
-# Execute a simple query
-query = "SELECT * FROM processed_files LIMIT 5"
-query_result = db_processor.execute_query(query)
-"""
-Executes a custom SQL query on the database.
-Returns a ServiceResponse object containing the execution status and result.
-"""
-print("Query result:\n", query_result)
-
-# # Perform annotation
-test_info = """1.患者老年女性，88岁；2.既往体健，否认药物过敏史。3.患者缘于5小时前不慎摔伤，伤及右髋部。伤后患者自感伤处疼痛，呼我院120接来我院，查左髋部X光片示：左侧粗隆间骨折。给予补液等对症治疗。患者病情平稳，以左侧粗隆间骨折介绍入院。患者自入院以来，无发热，无头晕头痛，无恶心呕吐，无胸闷心悸，饮食可，小便正常，未排大便。4.查体：T36.1C，P87次/分，R18次/分，BP150/93mmHg,心肺查体未见明显异常，专科情况：右下肢短缩畸形约2cm，右髋部外旋内收畸形，右髋部压痛明显，叩击痛阳性,右髋关节活动受限。右足背动脉波动好，足趾感觉运动正常。5.辅助检查：本院右髋关节正位片：右侧股骨粗隆间骨折。"""
-result = annotator.annotate_task(annotate_tags_string, test_info)
-print("Annotation Result:", result.content)
+# 获取表头
+table_header = yaml.safe_load(table_header_string)
 
 # Initialize and use PatientDataManager
 pdm = PatientDataManager(table_header)
 
-# Example usage:
-# Adding patient data
-# patient_data = {
-#     "age": "45",
-#     "gender": "Male",
-#     "diagnosis": "Hypertension",
-#     "is_smoker": "yes",
-#     "blood_pressure": "120/80"
-# }
+# 连接到数据库
+conn = sqlite3.connect("../project_data.db")
+cursor = conn.cursor()
 
-# try:
-#     pdm.add_patient_data(patient_data)
-#     print("Patient data added successfully.")
-# except ValueError as e:
-#     print(f"Error adding patient data: {e}")
+# 获取记录总数
+count_query = sql_config['count_query'].format(base_query=sql_config['base_query'])
+cursor.execute(count_query)
+total_records = cursor.fetchone()[0]
 
-# Save to CSV
-pdm.save_to_csv(return_table_path)
+print(f"总记录数: {total_records}")
+
+# 分页查询
+processed_records = 0
+
+try:
+    for offset in range(0, total_records, 1): # 建议每次值查询一条记录
+        paginated_query = sql_config['paginated_query'].format(
+            base_query=sql_config['base_query'],
+            page_size=page_size,
+            offset=offset
+        )
+        cursor.execute(paginated_query)
+        
+        record = cursor.fetchone()
+        if record is None:
+            break
+
+        # 将记录转换为字典，方便处理
+        record_dict = {col['name']: value for col, value in zip(sql_config['columns'], record)}
+
+       # 处理从数据库直接查询到的字段
+        processed_data = {}
+        # 在这里添加您的数据处理逻辑
+        # 例如：
+        # # 1. 处理日期和时间等数据库中可以直接查询到的字段
+        # for date_field in ['出生日期', '入院时间', '出院时间', '日期', '手术日期']:
+        #     if record_dict[date_field]:
+        #         try:
+        #             record_dict[date_field] = datetime.strptime(record_dict[date_field], '%Y-%m-%d').date()
+        #         except ValueError:
+        #             print(f"警告: 无法解析日期 {date_field}: {record_dict[date_field]}")
+        #     processed_data[date_field] = record_dict[date_field]
+
+        # # 2. 从病程记录中提取信息表头的信息
+        # if record_dict['病程记录']:
+        #     extracted_data = data_extractor.extract_information(record_dict['病程记录'], table_header_string)        
+        # # 3. 在这里添加更多的处理逻辑...
+        # 以上注释说明可在正式代码中删除。
+        
+        # 添加处理后的数据到 PatientDataManager
+        try:
+            pdm.add_patient_data(processed_data)
+            # print(f"成功添加患者数据: {processed_data['患者ID']}")  # 假设有'患者ID'字段
+        except ValueError as e:
+            print(f"添加患者数据时出错: {e}")
+
+
+        
+        
+        
+        processed_records += 1
+        
+        if processed_records % 5 == 0:
+            print(f"已处理 {processed_records} / {total_records} 条记录")
+            break  # 调试用，处理5条记录后停止
+
+except Exception as e:
+    print(f"处理记录时发生错误: {e}")
+    # 在这里可以添加错误处理逻辑，比如记录错误日志
+
+finally:
+    # 关闭数据库连接
+    cursor.close()
+    conn.close()
+    # 保存处理后的数据到CSV文件
+    try:
+        pdm.save_to_csv(return_table_path)
+        print(f"数据已保存到 {return_table_path}")
+    except Exception as e:
+        print(f"保存CSV文件时发生错误: {e}")
+
+print(f"总共处理了 {processed_records} 条记录")
 
 #EOF
